@@ -17,11 +17,15 @@ from tests.factories import fixed_entry, setup_entry
 LIVE = Path(__file__).parent / "fixtures" / "live"
 MD_URL = "https://www.spc.noaa.gov/products/md/md2104.html"
 POINT = (47.0, -107.0)  # inside MD 2104
+# The fixtures were captured 2026-10-13; layers are judged current against the
+# clock, so pin it inside their validity window (Day 1 expires 10-14 12Z).
+CAPTURED_AT = "2026-10-13T18:00:00+00:00"
 
 
 async def test_full_setup_against_live_payloads(
-    hass: HomeAssistant, aioclient_mock
+    hass: HomeAssistant, aioclient_mock, freezer
 ) -> None:
+    freezer.move_to(CAPTURED_AT)
     for path in LAYER_PATHS.values():
         name = path.rsplit("/", 1)[-1]
         aioclient_mock.get(SPC_BASE + path, text=(LIVE / "layers" / name).read_text())
