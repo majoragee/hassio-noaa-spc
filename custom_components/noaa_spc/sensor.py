@@ -225,7 +225,10 @@ def _discussion(text_key: str, layer_key: str, name: str) -> HubSensorDescriptio
         text = bundle.texts.get(text_key)
         if text is None:
             return {}
+        layer = bundle.layers.get(layer_key)
+        valid = layer.valid if layer else None
         return {
+            "valid": valid.isoformat() if valid else None,
             "text": text.text,
             "summary": text.summary,
             "forecaster": text.forecaster,

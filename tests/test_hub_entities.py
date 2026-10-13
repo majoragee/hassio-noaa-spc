@@ -18,7 +18,9 @@ TEXT = TextProduct(text="Full discussion", summary="Storms today.", forecaster="
 
 
 async def test_hub_sensors(hass: HomeAssistant, mock_api) -> None:
-    mock_api.outlooks = outlook_bundle(risk_layers(), texts={"day1": TEXT})
+    mock_api.outlooks = outlook_bundle(
+        risk_layers(), texts={"day1": TEXT, "day48": TEXT}
+    )
     mock_api.alerts = alert_bundle(
         [make_watch(612, pds=True), make_watch(613, "severe_thunderstorm")],
         [make_md(2104)],
@@ -30,6 +32,10 @@ async def test_hub_sensors(hass: HomeAssistant, mock_api) -> None:
     assert day1.attributes["summary"] == "Storms today."
     assert day1.attributes["text"] == "Full discussion"
     assert day1.attributes["forecaster"] == "Smith"
+    assert day1.attributes["valid"] == "2026-10-13T13:00:00+00:00"
+    day48 = hass.states.get("sensor.noaa_spc_day_4_8_discussion")
+    assert day48.state != "unavailable"
+    assert day48.attributes["summary"] == "Storms today."
     # day2 text was never fetched -> unavailable
     assert hass.states.get("sensor.noaa_spc_day_2_discussion").state == "unavailable"
 
