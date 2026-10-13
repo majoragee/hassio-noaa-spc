@@ -9,10 +9,16 @@ A Home Assistant custom integration (`noaa_spc`, distributed via HACS) that:
 
 1. Pulls national NOAA Storm Prediction Center (SPC) products — outlook maps and
    forecaster discussion text — for dashboard display and spoken/LLM briefings.
-2. Tracks the categorical and probabilistic convective risk, plus active watches
-   and mesoscale discussions (MDs), for one or more locations. A location is
+2. Tracks the categorical and probabilistic convective risk, plus active
+   mesoscale discussions (MDs), for one or more locations. A location is
    either fixed (lat/lon) or follows a `device_tracker`, `person`, or `zone`
    entity.
+3. Reports a national count of active SPC watches as a pulse check on the day's
+   storm activity.
+
+The integration is scoped to SPC products and talks only to `spc.noaa.gov`.
+Location-specific watches and warnings are NWS alert products and are left to a
+separate NWS weather integration, so the two never duplicate each other.
 
 Both use cases matter equally: **automations/alerts** (reliable states and
 events) and **dashboard display** (maps, readable text).
@@ -22,9 +28,11 @@ events) and **dashboard display** (maps, readable text).
 - A user can add "Home" and "My Phone" as separate locations and see, for each,
   the Day 1–3 categorical risk, Day 1–2 tornado/wind/hail probabilities, Day 3
   any-severe probability, Day 4–8 probability, and whether the location is in an
-  active watch or MD.
+  active MD.
 - An automation can trigger on "risk for my location rose to ENH or higher" or
-  "a tornado watch now covers my phone" without diffing states, via events.
+  "an MD now covers my phone" without diffing states, via events.
+- A dashboard can show how many watches SPC has active nationwide (and how many
+  are tornado / PDS).
 - National outlook maps and discussion text are available once (not duplicated
   per location).
 - SPC products are downloaded once regardless of the number of locations, and
@@ -36,6 +44,8 @@ events) and **dashboard display** (maps, readable text).
 - Fire weather outlooks, thunderstorm (TSTM) probability outlooks, local storm
   reports, convective watch probability graphics beyond MD watch-probability text.
 - Non-CONUS coverage (SPC does not issue outlooks there).
+- Location-specific watches, warnings or any other NWS alert products, and any
+  use of `api.weather.gov` (owned by a separate NWS integration).
 - Generating speech or LLM output directly — the integration exposes text
   attributes for users' own TTS/LLM automations.
 
@@ -54,8 +64,7 @@ All under `https://www.spc.noaa.gov/products/`. Server supports conditional GET
 | Day 4–8 prob | `exper/day4-8/day{4..8}prob.lyr.geojson` |
 | Outlook text | `outlook/day{1,2,3}otlk.txt`; Day 4–8 text from `exper/day4-8/` |
 | Outlook images | `outlook/day{1,2,3}otlk.png` (+ per-hazard images), Day 4–8 image |
-| Watches | NWS API `https://api.weather.gov/alerts/active?event=Tornado%20Watch,Severe%20Thunderstorm%20Watch` (county/zone UGC lists; watch number, type, action from VTEC `/O.<act>.<office>.<TO|SV>.A.<nnnn>.`) |
-| Location → UGC codes | NWS API `https://api.weather.gov/points/{lat},{lon}` (`county`, `forecastZone`) |
+| Watches (national list) | `spcwwrss.xml` → items linking to `watch/wwNNNN.html`; a single "No watches are valid" placeholder item when none are active |
 | MD feed | `spcmdrss.xml` → links to `md/mdNNNN.html`; the `<pre>` text includes a `LAT...LON` polygon |
 | Per-hazard images | `outlook/day{1,2}probotlk_{torn,wind,hail}.png` |
 | Day 4–8 text / image | `<pre>` block of `exper/day4-8/` page; `exper/day4-8/day48prob.gif` |
@@ -65,10 +74,10 @@ GeoJSON features carry `LABEL` (e.g. `SLGT`, `0.05`, `SIGN`), `LABEL2`, `DN`,
 `DN: 0` feature with an empty `GeometryCollection` (its timestamps may be stale);
 Day 4–8 uses `LABEL: "Predictability Too Low"` on that feature when applicable.
 
-Watches are matched by **county/zone UGC**, not polygon: the location's UGC
-codes come from the `/points` lookup (cached per position; re-queried only when a
-tracked location moves beyond its threshold). This matches the official
-county-based watch definitions. MDs are matched by point-in-polygon.
+Watches are national only: each distinct watch number in the feed counts once,
+with type (tornado / severe thunderstorm) and PDS taken from the item text. They
+are never matched to a location. MDs are matched to locations by
+point-in-polygon.
 
 All requests send a User-Agent identifying the integration and repo URL.
 
@@ -92,8 +101,8 @@ SPC HTTP ──►│ outlooks (5 min, conditional GET)   watches/MDs (2 min, RS
 
 - `api/` package has no Home Assistant imports so it is unit-testable in
   isolation and could later be extracted to PyPI.
-- Location coordinators never fetch SPC products; their only network call is
-  the cached `/points` UGC lookup, made through the hub's API client.
+- Location coordinators make no network calls; they evaluate the hub's
+  in-memory snapshot.
 
 ## 4. Per-location entities
 
@@ -113,15 +122,13 @@ All also carry `data_age` (seconds since last successful fetch of the source).
 
 ### Binary sensors
 
-- `tornado_watch`, `severe_thunderstorm_watch`: on while the location is inside
-  an active watch of that type. Attributes: `number`, `expires`, `pds`, `url`.
 - `mesoscale_discussion`: on while inside an active MD. Attributes: `number`,
   `concerning`, `watch_probability`, `summary`, `url`. If multiple MDs apply,
   attributes list all of them.
 
 ### Entity groups (toggleable in options)
 
-categorical, probabilistic (Day 1–3), Day 4–8, watches/MDs.
+categorical, probabilistic (Day 1–3), Day 4–8, MDs.
 
 ### Events
 
@@ -130,15 +137,12 @@ All events include `config_entry_id`, `location_name`, `latitude`, `longitude`.
 - `noaa_spc_risk_changed`: `day`, `old`, `new`, `old_level`, `new_level`,
   `upgraded` (bool). Fired when a day's categorical level changes for the
   location (whether due to a new outlook or the location moving).
-- `noaa_spc_watch_issued`: `number`, `type` (`tornado`/`severe_thunderstorm`),
-  `pds`, `expires`, `url`. Fired the first time a given watch covers the
-  location.
 - `noaa_spc_md_issued`: `number`, `concerning`, `watch_probability`, `summary`,
   `url`. Fired the first time a given MD covers the location.
 
 The first evaluation after startup or entry setup establishes a baseline and
-fires no events. Watch/MD "issued" events are deduplicated per location by
-product number for the life of the product.
+fires no events. MD "issued" events are deduplicated per location by product
+number for the life of the product.
 
 ### Location resolution
 
@@ -159,13 +163,16 @@ Device: "NOAA SPC".
 - `sensor.spc_day{1,2,3}_discussion` — state is issue timestamp; attributes:
   `text` (full discussion), `summary`, `forecaster`, `valid`.
 - `sensor.spc_day4_8_discussion` — same shape.
-- `sensor.spc_active_watches`, `sensor.spc_active_mds` — national counts;
-  attribute `items` with number, type/concerning, expiry, url.
+- `sensor.spc_active_watches` — national pulse check: state is the number of
+  active watches; attributes `tornado`, `severe_thunderstorm` and `pds` counts
+  and `items` (number, type, pds, url).
+- `sensor.spc_active_mds` — national MD count; attribute `items` with number,
+  concerning, watch probability, url.
 
 `image` entities (not `camera`) are used; `image_last_updated` changes only
 when the image content changes.
 
-Hub options: outlook poll interval (default 5 min), watch/MD poll interval
+Hub options: outlook poll interval (default 5 min), MD/watch feed poll interval
 (default 2 min). Per-hazard image entities always exist but are disabled by
 default in the entity registry.
 
@@ -210,7 +217,7 @@ custom_components/noaa_spc/
     __init__.py
     client.py        # async fetch, conditional-GET cache, User-Agent
     outlooks.py      # GeoJSON → OutlookArea models (Days 1–8)
-    watches.py       # watch feed + polygon parsing
+    watches.py       # SPC watch RSS → national watch list
     mds.py           # MD feed + LAT...LON parsing
     geometry.py      # point-in-(multi)polygon with holes, pure Python
     models.py        # RiskLevel enum, Outlook, Watch, MesoscaleDiscussion
@@ -225,7 +232,7 @@ custom_components/noaa_spc/
   translations/en.json
 blueprints/automation/noaa_spc/notify_severe_risk.yaml
 tests/
-  fixtures/          # real SPC files: quiet, busy, empty, day4-8 low predictability, active MD, active watch
+  fixtures/          # real SPC files: quiet, busy, empty, day4-8 low predictability, active MD, watch feed
   api/
   ...
 hacs.json
@@ -242,11 +249,11 @@ confirmed against APIs used.
 
 "NOAA SPC: notify on severe weather"
 
-- Inputs: location device, categorical threshold (default ENH), days to watch,
-  include watches/MDs (bool), notify target.
+- Inputs: location, categorical threshold (default ENH), days to watch,
+  include MDs (bool), notify actions.
 - Triggers: `noaa_spc_risk_changed` with `upgraded: true` and
-  `new_level >= threshold`; `noaa_spc_watch_issued`; `noaa_spc_md_issued`;
-  all filtered by the selected location's config entry.
+  `new_level >= threshold`; `noaa_spc_md_issued`; both filtered by the selected
+  location's config entry.
 - Message composed from event data.
 
 ## 10. Testing
@@ -254,9 +261,9 @@ confirmed against APIs used.
 - TDD, module by module.
 - `api/` unit tests against captured fixtures: parsing every product type,
   empty/`DN: 0` handling, geometry edge cases (holes, multipolygons, boundary
-  points), conditional-GET cache behavior.
+  points), watch feed placeholder/duplicates, conditional-GET cache behavior.
 - Integration tests with `pytest-homeassistant-custom-component`: config flow
   paths, entity states, event firing and deduplication, no events on baseline,
-  tracked device moving into/out of a watch, staleness → unavailable, Repairs
+  tracked device moving into/out of an MD or risk area, staleness → unavailable, Repairs
   issue on removed tracker.
 - CI: pytest, ruff, hassfest, HACS validation.

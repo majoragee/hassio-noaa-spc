@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a HACS-installable Home Assistant custom integration (`noaa_spc`) that exposes SPC outlook maps/discussions nationally and per-location categorical/probabilistic risk, watches and mesoscale discussions, with events and a notification blueprint.
+**Goal:** Build a HACS-installable Home Assistant custom integration (`noaa_spc`) that exposes SPC outlook maps/discussions nationally and per-location categorical/probabilistic risk and mesoscale discussions, plus a national active-watch count, with events and a notification blueprint. Everything comes from `spc.noaa.gov`; location-specific watches are deliberately out of scope (a separate NWS weather integration covers them).
 
-**Architecture:** A Home-Assistant-free `api/` package fetches (conditional GET) and parses SPC GeoJSON/text/RSS and NWS alert/point JSON into frozen dataclasses, and evaluates point containment. A reference-counted hub singleton owns two `DataUpdateCoordinator`s (outlooks, alerts) shared by all config entries; one hub config entry hosts national entities, and each location config entry has a `LocationCoordinator` that re-evaluates on hub updates or tracker movement and fires events.
+**Architecture:** A Home-Assistant-free `api/` package fetches (conditional GET) and parses SPC GeoJSON/text/RSS into frozen dataclasses, and evaluates point containment. A reference-counted hub singleton owns two `DataUpdateCoordinator`s (outlooks, alerts) shared by all config entries; one hub config entry hosts national entities, and each location config entry has a `LocationCoordinator` that re-evaluates on hub updates or tracker movement and fires events.
 
 **Tech Stack:** Python 3.13+, Home Assistant ≥ 2025.1 APIs, aiohttp (HA's session), stdlib `xml.etree`/`json`/`re`, pytest + `pytest-homeassistant-custom-component`, `aioresponses` (API tests), ruff.
 
@@ -18,7 +18,8 @@
 - Declared minimum Home Assistant version: `2025.1.0` (in `hacs.json`).
 - Every HTTP request sends `User-Agent: hassio-noaa-spc/0.1.0 (https://github.com/majoragee/hassio-noaa-spc)`.
 - Outlook polling default 5 min, watch/MD polling default 2 min.
-- Outlook-derived entities unavailable after 3 h without a successful fetch of their source; watch/MD entities after 15 min.
+- Outlook-derived entities unavailable after 3 h without a successful fetch of their source; MD entities and the national watch count after 15 min.
+- All requests go to `https://www.spc.noaa.gov/` only — no `api.weather.gov` calls, no per-location watch matching.
 - First evaluation after startup/setup fires no events.
 - Long text attributes (`text`, `summary`, `items`) excluded from the recorder.
 - Never put a personal name or personal email in any file; the author/copyright holder is `majoragee`.
@@ -28,10 +29,10 @@
 ## Review Focus
 
 1. **MD feed link format is unverified while MDs are active** — links may be `md/mdNNNN.html` or `md/YYYY/mdNNNN.html`; the parser must accept both (test in Task 5).
-2. **Partially cancelled watch** — NWS issues separate `CAN` alerts for counties dropped from a still-active watch; a location in a cancelled county must not match (test in Task 6).
-3. **Location outside NWS coverage** — `/points` returns 404; watch sensors must be `off` and available, not erroring (tests in Tasks 8 and 11).
+2. **Watch feed format is unverified while watches are active** — `spcwwrss.xml` items may be watch pages, status reports or the "No watches are valid" placeholder, and the same watch may appear twice; the count must be per distinct watch number and the placeholder must yield zero (tests in Task 6).
+3. **Watch feed outage** — the bundle must keep the last watch list and timestamp while MD updates continue (test in Task 8); the hub watch sensor goes unavailable only after 15 min via `ALERT_STALE` (Task 14).
 4. **Empty layer with stale metadata** — SPC empty layers carry months-old `ISSUE_ISO`; risk must be `none` and the entity available because freshness uses fetch time, not issue time (test in Task 13).
-5. **Rapid tracker updates** — two moves in quick succession with a slow NWS lookup; the final position must win and the stale lookup must not overwrite it (test in Task 11).
+5. **Rapid tracker updates** — two moves in quick succession; the final position must win and the entities must reflect it (test in Task 11).
 
 ---
 
@@ -46,7 +47,7 @@ custom_components/noaa_spc/
   location.py          # LocationData, LocationCoordinator (position, evaluation, events, repairs)
   entity.py            # base entities, freshness helpers, attribute helpers, registry cleanup
   sensor.py            # location sensors + hub sensors
-  binary_sensor.py     # watch / MD binary sensors
+  binary_sensor.py     # MD binary sensor
   image.py             # outlook map images
   config_flow.py       # config flow (fixed/tracked/outside/import) + options flows
   translations/en.json
@@ -58,7 +59,7 @@ custom_components/noaa_spc/
     outlooks.py        # GeoJSON layer parsing + lookups
     text.py            # outlook discussion text parsing
     mds.py             # MD RSS + page parsing
-    watches.py         # NWS watch alerts + points parsing
+    watches.py         # SPC watch RSS parsing (national list)
     client.py          # SpcClient (conditional GET), SpcApiError, Fetched
     spc.py             # SpcApi, OutlookBundle, AlertBundle
     evaluate.py        # OutlookRisk, AlertRisk, evaluate_outlooks, evaluate_alerts
@@ -71,7 +72,7 @@ tests/
   api/__init__.py
   api/test_*.py
   test_*.py
-  fixtures/live/...    # captured real SPC/NWS responses (Task 17)
+  fixtures/live/...    # captured real SPC responses (Task 17)
 pyproject.toml
 requirements_test.txt
 hacs.json
@@ -122,7 +123,7 @@ Then pin the resolved version: run `.venv/bin/python -m pip show pytest-homeassi
 [project]
 name = "hassio-noaa-spc"
 version = "0.1.0"
-description = "Home Assistant integration for NOAA Storm Prediction Center outlooks, watches and mesoscale discussions"
+description = "Home Assistant integration for NOAA Storm Prediction Center outlooks and mesoscale discussions"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "majoragee" }]
@@ -168,7 +169,7 @@ __pycache__/
 ```markdown
 # NOAA Storm Prediction Center for Home Assistant
 
-Custom integration exposing SPC convective outlooks, watches and mesoscale discussions.
+Custom integration exposing SPC convective outlooks, mesoscale discussions and a national watch count.
 Work in progress.
 ```
 
@@ -196,7 +197,7 @@ Work in progress.
 
 `custom_components/noaa_spc/api/__init__.py`:
 ```python
-"""SPC/NWS data access. Must not import Home Assistant."""
+"""SPC data access. Must not import Home Assistant."""
 ```
 
 `tests/__init__.py` and `tests/api/__init__.py`: empty files.
@@ -244,7 +245,6 @@ OUTLOOK_STALE = timedelta(hours=3)
 ALERT_STALE = timedelta(minutes=15)
 
 EVENT_RISK_CHANGED = "noaa_spc_risk_changed"
-EVENT_WATCH_ISSUED = "noaa_spc_watch_issued"
 EVENT_MD_ISSUED = "noaa_spc_md_issued"
 
 ISSUE_MISSING_TRACKER = "missing_tracker"
@@ -346,7 +346,7 @@ git commit -m "Scaffold noaa_spc custom integration and dev tooling"
   - `Ring = tuple[tuple[float, float], ...]` — `(lon, lat)` pairs; `Polygon = tuple[Ring, ...]` — outer ring first, then holes.
   - `RiskLevel(IntEnum)`: `NONE=0, TSTM=1, MRGL=2, SLGT=3, ENH=4, MDT=5, HIGH=6`; `RiskLevel.from_label(str) -> RiskLevel | None`; properties `.state -> str` (`"none"` or the name) and `.description -> str`.
   - `RISK_STATES: list[str]` = `["none", "TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"]`.
-  - Frozen dataclasses `OutlookArea(label, polygons)`, `OutlookLayer(areas, issued, valid, expire, forecaster, predictability_too_low=False)`, `TextProduct(text, summary, forecaster)`, `MesoscaleDiscussion(number, areas_affected, concerning, watch_probability, summary, polygon, url)`, `Watch(number, kind, pds, expires, ugcs, url)`.
+  - Frozen dataclasses `OutlookArea(label, polygons)`, `OutlookLayer(areas, issued, valid, expire, forecaster, predictability_too_low=False)`, `TextProduct(text, summary, forecaster)`, `MesoscaleDiscussion(number, areas_affected, concerning, watch_probability, summary, polygon, url)`, `Watch(number, kind, pds, url)`.
   - `point_in_polygon(lon, lat, polygon) -> bool`, `point_in_any(lon, lat, polygons) -> bool`.
 
 - [ ] **Step 1: Write failing tests**
@@ -520,8 +520,6 @@ class Watch:
     number: int
     kind: str  # "tornado" or "severe_thunderstorm"
     pds: bool
-    expires: datetime | None
-    ugcs: frozenset[str]
     url: str
 ```
 
@@ -583,7 +581,7 @@ git commit -m "Add SPC data models and point-in-polygon geometry"
 **Interfaces:**
 - Consumes: Task 2 models, geometry.
 - Produces:
-  - `products.py`: `SPC_BASE`, `NWS_BASE`, `USER_AGENT`, `LAYER_PATHS: dict[str, str]` (keys `day{1,2}_cat`, `day{1,2}_{torn,wind,hail}`, `day{1,2}_sig{torn,wind,hail}`, `day3_cat`, `day3_prob`, `day3_sigprob`, `day{4..8}_prob`), `TEXT_PATHS: dict[str, str]` (keys `day1`, `day2`, `day3`, `day48`), `IMAGE_PATHS: dict[str, tuple[str, str]]` (key → (path, content type); keys `day1`, `day2`, `day3`, `day{1,2}_{torn,wind,hail}`, `day48`), `MD_FEED_PATH`, `WATCH_ALERTS_URL`, `watch_url(number) -> str`, `in_conus(lat, lon) -> bool`.
+  - `products.py`: `SPC_BASE`, `USER_AGENT`, `LAYER_PATHS: dict[str, str]` (keys `day{1,2}_cat`, `day{1,2}_{torn,wind,hail}`, `day{1,2}_sig{torn,wind,hail}`, `day3_cat`, `day3_prob`, `day3_sigprob`, `day{4..8}_prob`), `TEXT_PATHS: dict[str, str]` (keys `day1`, `day2`, `day3`, `day48`), `IMAGE_PATHS: dict[str, tuple[str, str]]` (key → (path, content type); keys `day1`, `day2`, `day3`, `day{1,2}_{torn,wind,hail}`, `day48`), `MD_FEED_PATH`, `WATCH_FEED_PATH`, `watch_url(number) -> str`, `in_conus(lat, lon) -> bool`.
   - `outlooks.py`: `OutlookParseError(ValueError)`, `parse_layer(data) -> OutlookLayer`, `categorical_at(layer, lat, lon) -> RiskLevel`, `parse_percent(label) -> int | None`, `probability_at(layer, lat, lon) -> int`, `any_area_at(layer, lat, lon) -> bool`.
   - `tests/helpers.py`: `ISSUE`, `VALID`, `EXPIRE`, `HOME`, `FAR`, `square(lat, lon, half=1.0)`, `feature(label, *rings, dn=1, forecaster="Smith")`, `empty_feature(label="")`, `collection(*features)`.
 
@@ -599,7 +597,7 @@ from typing import Any
 ISSUE = "2026-10-13T12:52:00+00:00"
 VALID = "2026-10-13T13:00:00+00:00"
 EXPIRE = "2026-10-14T12:00:00+00:00"
-HOME = (35.22, -97.44)  # Norman, OK (Cleveland County, OKC027)
+HOME = (35.22, -97.44)  # Norman, OK
 FAR = (44.0, -110.0)  # Wyoming, outside every test area
 
 
@@ -788,12 +786,11 @@ Expected: collection error — `No module named 'custom_components.noaa_spc.api.
 - [ ] **Step 4: Implement `products.py`**
 
 ```python
-"""SPC/NWS product catalog. Must not import Home Assistant."""
+"""SPC product catalog. Must not import Home Assistant."""
 
 from __future__ import annotations
 
 SPC_BASE = "https://www.spc.noaa.gov/products/"
-NWS_BASE = "https://api.weather.gov/"
 USER_AGENT = "hassio-noaa-spc/0.1.0 (https://github.com/majoragee/hassio-noaa-spc)"
 
 HAZARDS = ("torn", "wind", "hail")
@@ -837,9 +834,7 @@ IMAGE_PATHS: dict[str, tuple[str, str]] = {
 }
 
 MD_FEED_PATH = "spcmdrss.xml"
-WATCH_ALERTS_URL = (
-    NWS_BASE + "alerts/active?event=Tornado%20Watch,Severe%20Thunderstorm%20Watch"
-)
+WATCH_FEED_PATH = "spcwwrss.xml"
 
 
 def watch_url(number: int) -> str:
@@ -1396,138 +1391,101 @@ git commit -m "Parse SPC mesoscale discussion feed and pages"
 
 ---
 
-### Task 6: NWS watch alerts and point zone parsing
+### Task 6: SPC watch feed parsing (national list)
 
 **Files:**
 - Create: `custom_components/noaa_spc/api/watches.py`
 - Test: `tests/api/test_watches.py`
 
 **Interfaces:**
-- Consumes: `Watch` (Task 2), `watch_url` (Task 3).
-- Produces: `WatchParseError(ValueError)`, `parse_watch_alerts(data) -> tuple[Watch, ...]` (sorted by number), `parse_point_ugcs(data) -> frozenset[str]`.
+- Consumes: `Watch` (Task 2).
+- Produces: `WatchParseError(ValueError)`, `parse_watch_feed(xml: bytes | str) -> tuple[Watch, ...]` (one per distinct watch number, sorted by number).
+
+Context: watches are national only — a pulse check of how active the day is. There is no per-location watch matching anywhere in this integration (a separate NWS weather integration owns that). The source is SPC's own RSS feed `https://www.spc.noaa.gov/products/spcwwrss.xml`. When nothing is active it carries a single placeholder item whose link is `https://www.spc.noaa.gov/products/watch/` and whose title reads `SPC - No watches are valid as of …` (verified 2026-10-13). Active-watch items link to `watch/wwNNNN.html` (watch pages are titled e.g. `Severe Thunderstorm Watch 150`); the exact item titles have not been observed live, so the parser keys off the link and only uses title/description text for type and PDS, merging every item that mentions the same watch number.
 
 - [ ] **Step 1: Write failing tests**
 
 `tests/api/test_watches.py`:
 ```python
-from datetime import UTC, datetime
-
 import pytest
 
-from custom_components.noaa_spc.api.watches import (
-    WatchParseError,
-    parse_point_ugcs,
-    parse_watch_alerts,
+from custom_components.noaa_spc.api.watches import WatchParseError, parse_watch_feed
+
+PLACEHOLDER = (
+    "<item><link>https://www.spc.noaa.gov/products/watch/</link>"
+    "<title>SPC - No watches are valid as of Sun Oct 11 22:31:02 UTC 2026</title>"
+    "<description>No watches are valid as of Sun Oct 11 22:31:02 UTC 2026.</description>"
+    "</item>"
 )
 
 
-def _alert(
-    vtec: str,
-    ugcs: list[str],
-    *,
-    message_type: str = "Alert",
-    ends: str | None = "2026-10-13T22:00:00-05:00",
-    description: str = "Tornado Watch 612 is in effect.",
-) -> dict:
-    return {
-        "type": "Feature",
-        "geometry": None,
-        "properties": {
-            "event": "Tornado Watch",
-            "messageType": message_type,
-            "expires": "2026-10-13T21:00:00-05:00",
-            "ends": ends,
-            "headline": "Tornado Watch issued",
-            "description": description,
-            "geocode": {"UGC": ugcs},
-            "parameters": {"VTEC": [vtec]},
-        },
-    }
-
-
-def _collection(*features: dict) -> dict:
-    return {"type": "FeatureCollection", "features": list(features)}
-
-
-def test_groups_watch_across_offices() -> None:
-    data = _collection(
-        _alert("/O.NEW.KOUN.TO.A.0612.261013T1900Z-261014T0300Z/", ["OKC027"]),
-        _alert("/O.NEW.KTSA.TO.A.0612.261013T1900Z-261014T0300Z/", ["OKC143"]),
-        _alert(
-            "/O.NEW.KOUN.SV.A.0613.261013T2000Z-261014T0300Z/",
-            ["TXC485"],
-            description="Severe Thunderstorm Watch 613",
-        ),
+def _item(link: str, title: str, description: str = "") -> str:
+    return (
+        f"<item><link>{link}</link><title>{title}</title>"
+        f"<description>{description}</description></item>"
     )
-    watches = parse_watch_alerts(data)
-    assert [(w.number, w.kind) for w in watches] == [
-        (612, "tornado"),
-        (613, "severe_thunderstorm"),
+
+
+def _feed(*items: str) -> str:
+    return (
+        '<?xml version="1.0"?><rss version="2.0"><channel>'
+        + "".join(items)
+        + "</channel></rss>"
+    )
+
+
+def test_placeholder_feed_has_no_watches() -> None:
+    assert parse_watch_feed(_feed(PLACEHOLDER)) == ()
+
+
+def test_watches_parsed_sorted_with_type() -> None:
+    feed = _feed(
+        _item(
+            "https://www.spc.noaa.gov/products/watch/ww0613.html",
+            "SPC Severe Thunderstorm Watch 613",
+        ),
+        _item("https://www.spc.noaa.gov/products/watch/ww0612.html", "SPC Tornado Watch 612"),
+    )
+    watches = parse_watch_feed(feed)
+    assert [(w.number, w.kind, w.pds) for w in watches] == [
+        (612, "tornado", False),
+        (613, "severe_thunderstorm", False),
     ]
-    tornado = watches[0]
-    assert tornado.ugcs == frozenset({"OKC027", "OKC143"})
-    assert tornado.expires == datetime(2026, 10, 14, 3, 0, tzinfo=UTC)
-    assert tornado.pds is False
-    assert tornado.url == "https://www.spc.noaa.gov/products/watch/ww0612.html"
+    assert watches[0].url == "https://www.spc.noaa.gov/products/watch/ww0612.html"
 
 
-def test_partially_cancelled_watch_excludes_cancelled_counties() -> None:
-    data = _collection(
-        _alert("/O.CON.KOUN.TO.A.0612.000000T0000Z-261014T0300Z/", ["OKC027"]),
-        _alert(
-            "/O.CAN.KOUN.TO.A.0612.000000T0000Z-261014T0300Z/",
-            ["OKC109"],
-            message_type="Update",
+def test_duplicate_and_status_items_merge_into_one_watch() -> None:
+    feed = _feed(
+        _item("https://www.spc.noaa.gov/products/watch/ww0612.html", "SPC Tornado Watch 612"),
+        _item(
+            "https://www.spc.noaa.gov/products/watch/2026/ww0612_status.html",
+            "SPC Watch 612 Status Report",
         ),
+        _item("https://www.spc.noaa.gov/products/watch/ww0612.html", "SPC Tornado Watch 612"),
     )
-    (watch,) = parse_watch_alerts(data)
-    assert watch.ugcs == frozenset({"OKC027"})
+    (watch,) = parse_watch_feed(feed)
+    assert watch.number == 612
+    assert watch.kind == "tornado"
+    assert watch.url == "https://www.spc.noaa.gov/products/watch/ww0612.html"
 
 
-def test_cancel_message_and_expired_action_ignored() -> None:
-    data = _collection(
-        _alert("/O.CAN.KMHX.TO.A.0681.000000T0000Z-261012T0000Z/", ["NCC001"],
-               message_type="Cancel"),
-        _alert("/O.EXP.KMHX.TO.A.0682.000000T0000Z-261012T0000Z/", ["NCC003"]),
+@pytest.mark.parametrize(
+    ("title", "description"),
+    [
+        ("SPC PDS Tornado Watch 612", ""),
+        ("SPC Tornado Watch 612", "THIS IS A PARTICULARLY DANGEROUS SITUATION"),
+    ],
+)
+def test_pds_detected(title: str, description: str) -> None:
+    feed = _feed(
+        _item("https://www.spc.noaa.gov/products/watch/ww0612.html", title, description)
     )
-    assert parse_watch_alerts(data) == ()
+    assert parse_watch_feed(feed)[0].pds is True
 
 
-def test_pds_detected() -> None:
-    data = _collection(
-        _alert(
-            "/O.NEW.KOUN.TO.A.0612.261013T1900Z-261014T0300Z/",
-            ["OKC027"],
-            description="THIS IS A PARTICULARLY DANGEROUS SITUATION.",
-        )
-    )
-    assert parse_watch_alerts(data)[0].pds is True
-
-
-def test_falls_back_to_expires_when_ends_missing() -> None:
-    data = _collection(
-        _alert("/O.NEW.KOUN.TO.A.0612.261013T1900Z-261014T0300Z/", ["OKC027"], ends=None)
-    )
-    assert parse_watch_alerts(data)[0].expires == datetime(2026, 10, 14, 2, 0, tzinfo=UTC)
-
-
-def test_malformed_alerts_rejected() -> None:
+def test_malformed_feed_rejected() -> None:
     with pytest.raises(WatchParseError):
-        parse_watch_alerts({"features": "nope"})
-
-
-def test_parse_point_ugcs() -> None:
-    data = {
-        "properties": {
-            "county": "https://api.weather.gov/zones/county/OKC027",
-            "forecastZone": "https://api.weather.gov/zones/forecast/OKZ029",
-        }
-    }
-    assert parse_point_ugcs(data) == frozenset({"OKC027", "OKZ029"})
-
-
-def test_parse_point_ugcs_missing_properties() -> None:
-    assert parse_point_ugcs({}) == frozenset()
+        parse_watch_feed(b"<rss><channel>")
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1538,100 +1496,71 @@ Expected: collection error — `No module named 'custom_components.noaa_spc.api.
 - [ ] **Step 3: Implement `watches.py`**
 
 ```python
-"""NWS watch alert and point zone parsing. Must not import Home Assistant."""
+"""SPC watch RSS feed parsing (national list). Must not import Home Assistant."""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 
 from .models import Watch
-from .products import watch_url
 
-_VTEC_RE = re.compile(r"/O\.(\w{3})\.\w{4}\.(TO|SV)\.A\.(\d{4})\.")
-_INACTIVE_ACTIONS = {"CAN", "EXP"}
-_PDS_TEXT = "PARTICULARLY DANGEROUS SITUATION"
-_KINDS = {"TO": "tornado", "SV": "severe_thunderstorm"}
+_LINK_RE = re.compile(r"/watch/(?:\d{4}/)?ww(\d{4})")
+_PAGE_RE = re.compile(r"/watch/(?:\d{4}/)?ww\d{4}\.html$")
+_PDS_RE = re.compile(r"\bPDS\b|PARTICULARLY DANGEROUS SITUATION")
 
 
 class WatchParseError(ValueError):
-    """Raised when the NWS alerts payload is malformed."""
+    """Raised when the SPC watch feed cannot be parsed."""
 
 
 @dataclass
 class _Group:
-    ugcs: set[str] = field(default_factory=set)
-    expires: datetime | None = None
+    url: str
+    tornado: bool = False
     pds: bool = False
 
 
-def _parse_dt(value: Any) -> datetime | None:
+def parse_watch_feed(xml: bytes | str) -> tuple[Watch, ...]:
     try:
-        return datetime.fromisoformat(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_watch_alerts(data: Any) -> tuple[Watch, ...]:
-    try:
-        features = data["features"]
-        if not isinstance(features, list):
-            raise TypeError("features is not a list")
-        groups: dict[tuple[str, int], _Group] = {}
-        for feature in features:
-            props = feature.get("properties") or {}
-            if props.get("messageType") == "Cancel":
-                continue
-            for vtec in (props.get("parameters") or {}).get("VTEC") or []:
-                match = _VTEC_RE.search(vtec)
-                if match is None or match.group(1) in _INACTIVE_ACTIONS:
-                    continue
-                key = (_KINDS[match.group(2)], int(match.group(3)))
-                group = groups.setdefault(key, _Group())
-                group.ugcs.update((props.get("geocode") or {}).get("UGC") or [])
-                ends = _parse_dt(props.get("ends")) or _parse_dt(props.get("expires"))
-                if ends is not None and (group.expires is None or ends > group.expires):
-                    group.expires = ends
-                text = f"{props.get('headline') or ''} {props.get('description') or ''}"
-                group.pds = group.pds or _PDS_TEXT in text.upper()
-    except (AttributeError, KeyError, TypeError) as err:
-        raise WatchParseError(f"malformed alerts payload: {err}") from err
+        root = ET.fromstring(xml)
+    except ET.ParseError as err:
+        raise WatchParseError(f"invalid watch feed XML: {err}") from err
+    groups: dict[int, _Group] = {}
+    for item in root.iter("item"):
+        link = (item.findtext("link") or "").strip()
+        match = _LINK_RE.search(link)
+        if match is None:
+            continue
+        number = int(match.group(1))
+        group = groups.setdefault(number, _Group(url=link))
+        if _PAGE_RE.search(link) and not _PAGE_RE.search(group.url):
+            group.url = link
+        text = f"{item.findtext('title') or ''} {item.findtext('description') or ''}"
+        upper = text.upper()
+        group.tornado = group.tornado or "TORNADO" in upper
+        group.pds = group.pds or bool(_PDS_RE.search(upper))
     return tuple(
         Watch(
             number=number,
-            kind=kind,
+            kind="tornado" if group.tornado else "severe_thunderstorm",
             pds=group.pds,
-            expires=group.expires,
-            ugcs=frozenset(group.ugcs),
-            url=watch_url(number),
+            url=group.url,
         )
-        for (kind, number), group in sorted(groups.items(), key=lambda kv: kv[0][1])
+        for number, group in sorted(groups.items())
     )
-
-
-def parse_point_ugcs(data: Any) -> frozenset[str]:
-    props = data.get("properties") if isinstance(data, dict) else None
-    if not isinstance(props, dict):
-        return frozenset()
-    codes = set()
-    for key in ("county", "forecastZone"):
-        value = props.get(key)
-        if isinstance(value, str) and value:
-            codes.add(value.rstrip("/").rsplit("/", 1)[-1])
-    return frozenset(codes)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/api/test_watches.py -v` — Expected: 8 passed.
+Run: `.venv/bin/pytest tests/api/test_watches.py -v` — Expected: 6 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add custom_components/noaa_spc/api/watches.py tests/api/test_watches.py
-git commit -m "Parse NWS watch alerts and point zones"
+git commit -m "Parse SPC watch feed into a national watch list"
 ```
 
 ---
@@ -1749,7 +1678,7 @@ from .products import USER_AGENT
 
 
 class SpcApiError(Exception):
-    """A request to SPC or NWS failed."""
+    """A request to SPC failed."""
 
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
@@ -1823,11 +1752,11 @@ git commit -m "Add SPC HTTP client with conditional GET caching"
 - Test: `tests/api/test_spc.py`
 
 **Interfaces:**
-- Consumes: Tasks 3–7.
+- Consumes: Tasks 3–7 (`parse_watch_feed`, `WATCH_FEED_PATH`).
 - Produces:
   - `OutlookBundle(layers: Mapping[str, OutlookLayer], texts: Mapping[str, TextProduct], images: Mapping[str, bytes], updated: Mapping[str, datetime])` — `updated` keys are `"layer:<layer key>"`, `"text:<text key>"`, `"image:<image key>"`, holding the time of the last successful fetch+parse.
   - `AlertBundle(watches: tuple[Watch, ...], mds: tuple[MesoscaleDiscussion, ...], watches_updated: datetime | None, mds_updated: datetime | None)`.
-  - `SpcApi(client: SpcClient, *, max_concurrency: int = 4)` with `async fetch_outlooks(previous: OutlookBundle | None) -> OutlookBundle`, `async fetch_alerts(previous: AlertBundle | None) -> AlertBundle`, `async point_ugcs(lat: float, lon: float) -> frozenset[str]` (404 → empty set, cached by position rounded to 3 decimals; other failures raise `SpcApiError`/`ValueError`). `fetch_outlooks`/`fetch_alerts` never raise; failures keep previous values and are logged once per distinct error.
+  - `SpcApi(client: SpcClient, *, max_concurrency: int = 4)` with `async fetch_outlooks(previous: OutlookBundle | None) -> OutlookBundle`, `async fetch_alerts(previous: AlertBundle | None) -> AlertBundle`. `fetch_outlooks`/`fetch_alerts` never raise; failures keep previous values and are logged once per distinct error.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1840,17 +1769,16 @@ import aiohttp
 import pytest
 from aioresponses import aioresponses
 
-from custom_components.noaa_spc.api.client import SpcApiError, SpcClient
+from custom_components.noaa_spc.api.client import SpcClient
 from custom_components.noaa_spc.api.models import RiskLevel
 from custom_components.noaa_spc.api.outlooks import categorical_at
 from custom_components.noaa_spc.api.products import (
     IMAGE_PATHS,
     LAYER_PATHS,
     MD_FEED_PATH,
-    NWS_BASE,
     SPC_BASE,
     TEXT_PATHS,
-    WATCH_ALERTS_URL,
+    WATCH_FEED_PATH,
 )
 from custom_components.noaa_spc.api.spc import SpcApi
 from tests.api.test_mds import MD_HTML
@@ -1862,20 +1790,11 @@ MD_FEED = (
     '<?xml version="1.0"?><rss version="2.0"><channel>'
     f"<item><link>{MD_URL}</link></item></channel></rss>"
 )
-WATCHES = {
-    "type": "FeatureCollection",
-    "features": [
-        {
-            "properties": {
-                "messageType": "Alert",
-                "ends": "2026-10-14T03:00:00+00:00",
-                "description": "",
-                "geocode": {"UGC": ["OKC027"]},
-                "parameters": {"VTEC": ["/O.NEW.KOUN.TO.A.0612.261013T1900Z-261014T0300Z/"]},
-            }
-        }
-    ],
-}
+WATCH_FEED = (
+    '<?xml version="1.0"?><rss version="2.0"><channel><item>'
+    "<link>https://www.spc.noaa.gov/products/watch/ww0612.html</link>"
+    "<title>SPC Tornado Watch 612</title></item></channel></rss>"
+)
 
 
 @pytest.fixture
@@ -1937,7 +1856,7 @@ async def test_malformed_product_logged_once(api: SpcApi, caplog) -> None:
 
 async def test_fetch_alerts_parses_and_caches_md_pages(api: SpcApi) -> None:
     with aioresponses() as mock:
-        mock.get(WATCH_ALERTS_URL, payload=WATCHES, repeat=True)
+        mock.get(SPC_BASE + WATCH_FEED_PATH, body=WATCH_FEED, repeat=True)
         mock.get(SPC_BASE + MD_FEED_PATH, body=MD_FEED, repeat=True)
         mock.get(MD_URL, body=MD_HTML)  # registered once: a second fetch would fail
         first = await api.fetch_alerts(None)
@@ -1949,12 +1868,12 @@ async def test_fetch_alerts_parses_and_caches_md_pages(api: SpcApi) -> None:
 
 async def test_fetch_alerts_failure_keeps_previous(api: SpcApi) -> None:
     with aioresponses() as mock:
-        mock.get(WATCH_ALERTS_URL, payload=WATCHES)
+        mock.get(SPC_BASE + WATCH_FEED_PATH, body=WATCH_FEED)
         mock.get(SPC_BASE + MD_FEED_PATH, body=MD_FEED)
         mock.get(MD_URL, body=MD_HTML)
         first = await api.fetch_alerts(None)
     with aioresponses() as mock:
-        mock.get(WATCH_ALERTS_URL, status=503)
+        mock.get(SPC_BASE + WATCH_FEED_PATH, status=503)
         mock.get(SPC_BASE + MD_FEED_PATH, status=503)
         second = await api.fetch_alerts(first)
     assert second.watches == first.watches
@@ -1962,21 +1881,16 @@ async def test_fetch_alerts_failure_keeps_previous(api: SpcApi) -> None:
     assert second.watches_updated == first.watches_updated
 
 
-async def test_point_ugcs_outside_coverage_is_empty_and_cached(api: SpcApi) -> None:
+async def test_watch_feed_failure_does_not_block_mds(api: SpcApi) -> None:
     with aioresponses() as mock:
-        mock.get(f"{NWS_BASE}points/51.5,-0.12", status=404)  # once only
-        assert await api.point_ugcs(51.5, -0.12) == frozenset()
-        assert await api.point_ugcs(51.5, -0.12) == frozenset()
-
-
-async def test_point_ugcs_success_and_server_error(api: SpcApi) -> None:
-    body = {"properties": {"county": "https://api.weather.gov/zones/county/OKC027"}}
-    with aioresponses() as mock:
-        mock.get(f"{NWS_BASE}points/35.22,-97.44", payload=body)
-        mock.get(f"{NWS_BASE}points/36.0,-97.0", status=500)
-        assert await api.point_ugcs(35.22, -97.44) == frozenset({"OKC027"})
-        with pytest.raises(SpcApiError):
-            await api.point_ugcs(36.0, -97.0)
+        mock.get(SPC_BASE + WATCH_FEED_PATH, status=503)
+        mock.get(SPC_BASE + MD_FEED_PATH, body=MD_FEED)
+        mock.get(MD_URL, body=MD_HTML)
+        bundle = await api.fetch_alerts(None)
+    assert bundle.watches == ()
+    assert bundle.watches_updated is None
+    assert [m.number for m in bundle.mds] == [2104]
+    assert bundle.mds_updated is not None
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1987,7 +1901,7 @@ Expected: collection error — `No module named 'custom_components.noaa_spc.api.
 - [ ] **Step 3: Implement `spc.py`**
 
 ```python
-"""High-level SPC/NWS fetching. Must not import Home Assistant."""
+"""High-level SPC fetching. Must not import Home Assistant."""
 
 from __future__ import annotations
 
@@ -2006,16 +1920,14 @@ from .products import (
     IMAGE_PATHS,
     LAYER_PATHS,
     MD_FEED_PATH,
-    NWS_BASE,
     SPC_BASE,
     TEXT_PATHS,
-    WATCH_ALERTS_URL,
+    WATCH_FEED_PATH,
 )
 from .text import parse_text_product
-from .watches import parse_point_ugcs, parse_watch_alerts
+from .watches import parse_watch_feed
 
 _LOGGER = logging.getLogger(__name__)
-GEOJSON = "application/geo+json"
 
 
 def _now() -> datetime:
@@ -2044,7 +1956,6 @@ class SpcApi:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._logged: set[str] = set()
         self._md_cache: dict[int, MesoscaleDiscussion] = {}
-        self._ugc_cache: dict[tuple[float, float], frozenset[str]] = {}
 
     def _failed(self, key: str, err: Exception) -> None:
         message = f"{key}: {err}"
@@ -2117,8 +2028,8 @@ class SpcApi:
         mds_updated = previous.mds_updated if previous else None
 
         try:
-            fetched = await self._get(WATCH_ALERTS_URL, accept=GEOJSON)
-            watches = parse_watch_alerts(json.loads(fetched.body))
+            fetched = await self._get(SPC_BASE + WATCH_FEED_PATH)
+            watches = parse_watch_feed(fetched.body)
         except (SpcApiError, ValueError) as err:
             self._failed("watches", err)
         else:
@@ -2150,23 +2061,6 @@ class SpcApi:
             self._succeeded("mds")
 
         return AlertBundle(watches, mds, watches_updated, mds_updated)
-
-    async def point_ugcs(self, lat: float, lon: float) -> frozenset[str]:
-        key = (round(lat, 3), round(lon, 3))
-        if key in self._ugc_cache:
-            return self._ugc_cache[key]
-        try:
-            fetched = await self._get(
-                f"{NWS_BASE}points/{key[0]},{key[1]}", accept=GEOJSON, conditional=False
-            )
-        except SpcApiError as err:
-            if err.status != 404:
-                raise
-            ugcs: frozenset[str] = frozenset()
-        else:
-            ugcs = parse_point_ugcs(json.loads(fetched.body))
-        self._ugc_cache[key] = ugcs
-        return ugcs
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -2192,9 +2086,9 @@ git commit -m "Add SpcApi with isolated per-product failures"
 - Consumes: Tasks 2, 3, 8.
 - Produces:
   - `OutlookRisk(categorical: Mapping[int, RiskLevel], probability: Mapping[str, int], significant: Mapping[str, bool], predictability_too_low: Mapping[int, bool])` with property `max_next_3_days -> tuple[RiskLevel, int] | None` (earliest day wins ties). `probability` keys: `day{1,2}_{torn,wind,hail}`, `day3_prob`, `day{4..8}_prob`; `significant` keys: `day{1,2}_{torn,wind,hail}`, `day3_prob`. Only layers present in the input appear.
-  - `AlertRisk(watches: tuple[Watch, ...], mds: tuple[MesoscaleDiscussion, ...])`.
-  - `evaluate_outlooks(layers: Mapping[str, OutlookLayer], lat, lon) -> OutlookRisk`; `evaluate_alerts(watches, mds, lat, lon, ugcs: frozenset[str]) -> AlertRisk`.
-  - `tests/factories.py`: `outlook_bundle(layers, *, when=None, texts=None, images=None) -> OutlookBundle`, `risk_layers() -> dict[str, dict]`, `alert_bundle(watches=(), mds=(), *, when=None) -> AlertBundle`, `make_watch(number=612, kind="tornado", ugcs=("OKC027",), pds=False) -> Watch`, `make_md(number=2104, center=HOME, half=1.0) -> MesoscaleDiscussion`.
+  - `AlertRisk(mds: tuple[MesoscaleDiscussion, ...])` — per-location alerts are MDs only; watches stay national.
+  - `evaluate_outlooks(layers: Mapping[str, OutlookLayer], lat, lon) -> OutlookRisk`; `evaluate_alerts(mds, lat, lon) -> AlertRisk`.
+  - `tests/factories.py`: `outlook_bundle(layers, *, when=None, texts=None, images=None) -> OutlookBundle`, `risk_layers() -> dict[str, dict]`, `alert_bundle(watches=(), mds=(), *, when=None) -> AlertBundle`, `make_watch(number=612, kind="tornado", pds=False) -> Watch`, `make_md(number=2104, center=HOME, half=1.0) -> MesoscaleDiscussion`.
 
 - [ ] **Step 1: Write `tests/factories.py`**
 
@@ -2267,20 +2161,8 @@ def alert_bundle(
     return AlertBundle(tuple(watches), tuple(mds), when, when)
 
 
-def make_watch(
-    number: int = 612,
-    kind: str = "tornado",
-    ugcs: Iterable[str] = ("OKC027",),
-    pds: bool = False,
-) -> Watch:
-    return Watch(
-        number=number,
-        kind=kind,
-        pds=pds,
-        expires=datetime(2026, 10, 14, 3, 0, tzinfo=UTC),
-        ugcs=frozenset(ugcs),
-        url=watch_url(number),
-    )
+def make_watch(number: int = 612, kind: str = "tornado", pds: bool = False) -> Watch:
+    return Watch(number=number, kind=kind, pds=pds, url=watch_url(number))
 
 
 def make_md(
@@ -2308,7 +2190,7 @@ from custom_components.noaa_spc.api.evaluate import (
     evaluate_outlooks,
 )
 from custom_components.noaa_spc.api.models import RiskLevel
-from tests.factories import make_md, make_watch, outlook_bundle, risk_layers
+from tests.factories import make_md, outlook_bundle, risk_layers
 from tests.helpers import FAR, HOME
 
 
@@ -2340,17 +2222,11 @@ def test_max_ties_pick_earliest_day_and_empty_is_none() -> None:
     assert OutlookRisk({}, {}, {}, {}).max_next_3_days is None
 
 
-def test_evaluate_alerts_by_ugc_and_polygon() -> None:
-    watches = (make_watch(612, ugcs=["OKC027"]), make_watch(613, ugcs=["TXC485"]))
+def test_evaluate_alerts_by_polygon() -> None:
     mds = (make_md(2104), make_md(2105, center=FAR))
-    risk = evaluate_alerts(watches, mds, *HOME, frozenset({"OKC027", "OKZ029"}))
-    assert [w.number for w in risk.watches] == [612]
+    risk = evaluate_alerts(mds, *HOME)
     assert [m.number for m in risk.mds] == [2104]
-
-
-def test_evaluate_alerts_with_no_ugcs_matches_no_watches() -> None:
-    risk = evaluate_alerts((make_watch(),), (), *HOME, frozenset())
-    assert risk.watches == ()
+    assert evaluate_alerts(mds, FAR[0] + 5.0, FAR[1]).mds == ()
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -2369,7 +2245,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from .geometry import point_in_polygon
-from .models import MesoscaleDiscussion, OutlookLayer, RiskLevel, Watch
+from .models import MesoscaleDiscussion, OutlookLayer, RiskLevel
 from .outlooks import any_area_at, categorical_at, probability_at
 
 PROBABILITY_KEYS = (
@@ -2401,7 +2277,6 @@ class OutlookRisk:
 
 @dataclass(frozen=True)
 class AlertRisk:
-    watches: tuple[Watch, ...]
     mds: tuple[MesoscaleDiscussion, ...]
 
 
@@ -2435,16 +2310,9 @@ def evaluate_outlooks(
 
 
 def evaluate_alerts(
-    watches: Iterable[Watch],
-    mds: Iterable[MesoscaleDiscussion],
-    lat: float,
-    lon: float,
-    ugcs: frozenset[str],
+    mds: Iterable[MesoscaleDiscussion], lat: float, lon: float
 ) -> AlertRisk:
-    return AlertRisk(
-        watches=tuple(w for w in watches if w.ugcs & ugcs),
-        mds=tuple(m for m in mds if point_in_polygon(lon, lat, m.polygon)),
-    )
+    return AlertRisk(tuple(m for m in mds if point_in_polygon(lon, lat, m.polygon)))
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -2455,7 +2323,7 @@ Run: `.venv/bin/pytest tests/api -v` — Expected: all pass.
 
 ```bash
 git add custom_components/noaa_spc/api/evaluate.py tests/factories.py tests/api/test_evaluate.py
-git commit -m "Evaluate outlooks, watches and MDs at a point"
+git commit -m "Evaluate outlooks and MDs at a point"
 ```
 
 ---
@@ -2474,7 +2342,7 @@ git commit -m "Evaluate outlooks, watches and MDs at a point"
   - `OutlookCoordinator(DataUpdateCoordinator[OutlookBundle])`, `AlertCoordinator(DataUpdateCoordinator[AlertBundle])`.
   - `SpcHub` with attributes `api: SpcApi`, `outlooks: OutlookCoordinator`, `alerts: AlertCoordinator`, `users: int`; methods `apply_options(options: Mapping[str, Any]) -> None`, `async_start()`, `async_stop()`.
   - `async_acquire_hub(hass) -> SpcHub`, `async_release_hub(hass) -> None`, `get_hub(hass) -> SpcHub | None`.
-  - `tests/conftest.py` fixture `mock_api` → a `SimpleNamespace` with mutable `outlooks: OutlookBundle`, `alerts: AlertBundle`, `ugcs: frozenset[str]`, `ugc_error: Exception | None`, and `ugc_calls: list[tuple[float, float]]`; it patches `SpcApi.fetch_outlooks`, `SpcApi.fetch_alerts`, `SpcApi.point_ugcs` to return them.
+  - `tests/conftest.py` fixture `mock_api` → a `SimpleNamespace` with mutable `outlooks: OutlookBundle` and `alerts: AlertBundle`; it patches `SpcApi.fetch_outlooks` and `SpcApi.fetch_alerts` to return them.
 
 - [ ] **Step 1: Add the `mock_api` fixture to `tests/conftest.py`**
 
@@ -2505,9 +2373,6 @@ def mock_api():
     state = SimpleNamespace(
         outlooks=outlook_bundle(risk_layers()),
         alerts=alert_bundle(),
-        ugcs=frozenset({"OKC027"}),
-        ugc_error=None,
-        ugc_calls=[],
     )
 
     async def fetch_outlooks(self, previous):
@@ -2516,16 +2381,9 @@ def mock_api():
     async def fetch_alerts(self, previous):
         return state.alerts
 
-    async def point_ugcs(self, lat, lon):
-        state.ugc_calls.append((lat, lon))
-        if state.ugc_error is not None:
-            raise state.ugc_error
-        return state.ugcs
-
     with (
         patch.object(SpcApi, "fetch_outlooks", fetch_outlooks),
         patch.object(SpcApi, "fetch_alerts", fetch_alerts),
-        patch.object(SpcApi, "point_ugcs", point_ugcs),
     ):
         yield state
 ```
@@ -2736,12 +2594,12 @@ git commit -m "Add shared reference-counted SPC hub"
 - Test: `tests/test_location.py`
 
 **Interfaces:**
-- Consumes: `SpcHub` shape (`api.point_ugcs`, `outlooks`, `alerts`) from Task 10; evaluate (Task 9); constants.
+- Consumes: `SpcHub` shape (`outlooks`, `alerts` coordinators) from Task 10; evaluate (Task 9); constants.
 - Produces:
-  - `LocationData(position, outlook: OutlookRisk | None, alerts: AlertRisk | None, layers: Mapping[str, OutlookLayer], updated: Mapping[str, datetime], watches_updated: datetime | None, mds_updated: datetime | None, ugcs_known: bool)` (frozen dataclass).
+  - `LocationData(position, outlook: OutlookRisk | None, alerts: AlertRisk | None, layers: Mapping[str, OutlookLayer], updated: Mapping[str, datetime], mds_updated: datetime | None)` (frozen dataclass).
   - `position_from_state(state: State | None) -> tuple[float, float] | None`.
   - `LocationCoordinator(DataUpdateCoordinator[LocationData])`, constructed `LocationCoordinator(hass, entry, hub)`; attributes `groups: set[str]`, `mode`, `tracked_entity`; `async async_start()`.
-  - Events `noaa_spc_risk_changed` (`config_entry_id, location_name, latitude, longitude, day, old, new, old_level, new_level, upgraded`), `noaa_spc_watch_issued` (`… number, type, pds, expires, url`), `noaa_spc_md_issued` (`… number, concerning, watch_probability, summary, url`).
+  - Events `noaa_spc_risk_changed` (`config_entry_id, location_name, latitude, longitude, day, old, new, old_level, new_level, upgraded`), `noaa_spc_md_issued` (`… number, concerning, watch_probability, summary, url`).
   - Repair issue id `f"missing_tracker_{entry.entry_id}"`, translation key `missing_tracker`, placeholders `entity_id`, `location`.
   - `tests/factories.py` additions: `fixed_entry(...)`, `tracked_entry(...)`, `FakeHub`.
 
@@ -2750,7 +2608,6 @@ git commit -m "Add shared reference-counted SPC hub"
 Append:
 ```python
 import logging
-from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -2810,8 +2667,6 @@ class FakeHub:
 
     def __init__(self, hass: HomeAssistant) -> None:
         log = logging.getLogger("tests.fakehub")
-        self.api = MagicMock()
-        self.api.point_ugcs = AsyncMock(return_value=frozenset({"OKC027"}))
         self.outlooks = DataUpdateCoordinator(hass, log, config_entry=None, name="o")
         self.alerts = DataUpdateCoordinator(hass, log, config_entry=None, name="a")
 
@@ -2828,20 +2683,16 @@ Move the new imports to the top of the file with the existing ones (ruff `I`/`E4
 
 `tests/test_location.py`:
 ```python
-import asyncio
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import async_capture_events
 
-from custom_components.noaa_spc.api.client import SpcApiError
 from custom_components.noaa_spc.api.models import RiskLevel
 from custom_components.noaa_spc.const import (
     CONF_GROUPS,
     DOMAIN,
     EVENT_MD_ISSUED,
     EVENT_RISK_CHANGED,
-    EVENT_WATCH_ISSUED,
     GROUP_CATEGORICAL,
 )
 from custom_components.noaa_spc.location import LocationCoordinator
@@ -2875,19 +2726,16 @@ def _hub_with_data(hass, *, day1="SLGT", watches=(), mds=()) -> FakeHub:
 
 async def test_fixed_location_baseline_has_no_events(hass: HomeAssistant) -> None:
     risk_events = async_capture_events(hass, EVENT_RISK_CHANGED)
-    watch_events = async_capture_events(hass, EVENT_WATCH_ISSUED)
     md_events = async_capture_events(hass, EVENT_MD_ISSUED)
-    hub = _hub_with_data(hass, watches=[make_watch()], mds=[make_md()])
+    hub = _hub_with_data(hass, mds=[make_md()])
     coordinator = await _start(hass, fixed_entry(), hub)
 
     data = coordinator.data
     assert data.position == HOME
     assert data.outlook.categorical[1] is RiskLevel.SLGT
-    assert [w.number for w in data.alerts.watches] == [612]
     assert [m.number for m in data.alerts.mds] == [2104]
-    assert data.ugcs_known is True
-    assert (risk_events, watch_events, md_events) == ([], [], [])
-    hub.api.point_ugcs.assert_awaited_once_with(*HOME)
+    assert data.mds_updated is not None
+    assert (risk_events, md_events) == ([], [])
 
 
 async def test_risk_upgrade_fires_once(hass: HomeAssistant) -> None:
@@ -2924,48 +2772,33 @@ async def test_downgrade_reports_not_upgraded(hass: HomeAssistant) -> None:
     assert events[0].data["upgraded"] is False
 
 
-async def test_new_watch_and_md_fire_once_each(hass: HomeAssistant) -> None:
-    watch_events = async_capture_events(hass, EVENT_WATCH_ISSUED)
+async def test_new_md_fires_once_and_watches_never_fire(hass: HomeAssistant) -> None:
+    md_events = async_capture_events(hass, EVENT_MD_ISSUED)
+    all_events = async_capture_events(hass, "noaa_spc_watch_issued")
+    hub = _hub_with_data(hass)
+    await _start(hass, fixed_entry(), hub)
+
+    bundle = alert_bundle([make_watch(612)], [make_md(2104), make_md(2105, center=FAR)])
+    hub.push_alerts(bundle)
+    hub.push_alerts(bundle)
+    await hass.async_block_till_done()
+
+    assert [e.data["number"] for e in md_events] == [2104]
+    assert md_events[0].data["watch_probability"] == 80
+    assert md_events[0].data["url"].endswith("md2104.html")
+    assert all_events == []
+
+
+async def test_md_that_expires_and_reissues_fires_again(hass: HomeAssistant) -> None:
     md_events = async_capture_events(hass, EVENT_MD_ISSUED)
     hub = _hub_with_data(hass)
     await _start(hass, fixed_entry(), hub)
 
-    bundle = alert_bundle([make_watch(612, pds=True), make_watch(613, ugcs=["TXC485"])],
-                          [make_md(2104), make_md(2105, center=FAR)])
-    hub.push_alerts(bundle)
-    hub.push_alerts(bundle)
+    hub.push_alerts(alert_bundle(mds=[make_md(2104)]))
+    hub.push_alerts(alert_bundle())
+    hub.push_alerts(alert_bundle(mds=[make_md(2104)]))
     await hass.async_block_till_done()
-
-    assert [e.data["number"] for e in watch_events] == [612]
-    assert watch_events[0].data["type"] == "tornado"
-    assert watch_events[0].data["pds"] is True
-    assert watch_events[0].data["expires"] == "2026-10-14T03:00:00+00:00"
-    assert watch_events[0].data["url"].endswith("ww0612.html")
-    assert [e.data["number"] for e in md_events] == [2104]
-    assert md_events[0].data["watch_probability"] == 80
-
-
-async def test_location_outside_nws_coverage_has_no_watches(hass: HomeAssistant) -> None:
-    hub = _hub_with_data(hass, watches=[make_watch()])
-    hub.api.point_ugcs.return_value = frozenset()
-    coordinator = await _start(hass, fixed_entry(51.5, -0.12, "London"), hub)
-    assert coordinator.data.ugcs_known is True
-    assert coordinator.data.alerts.watches == ()
-
-
-async def test_zone_lookup_failure_retries_on_next_alert_update(hass: HomeAssistant) -> None:
-    events = async_capture_events(hass, EVENT_WATCH_ISSUED)
-    hub = _hub_with_data(hass, watches=[make_watch()])
-    hub.api.point_ugcs.side_effect = SpcApiError("boom", 503)
-    coordinator = await _start(hass, fixed_entry(), hub)
-    assert coordinator.data.ugcs_known is False
-
-    hub.api.point_ugcs.side_effect = None
-    hub.push_alerts(alert_bundle([make_watch()]))
-    await hass.async_block_till_done()
-    assert coordinator.data.ugcs_known is True
-    assert [w.number for w in coordinator.data.alerts.watches] == [612]
-    assert events == []  # first known-zone evaluation is a baseline
+    assert [e.data["number"] for e in md_events] == [2104, 2104]
 
 
 async def test_tracked_move_into_risk_fires_and_jitter_is_ignored(
@@ -2984,12 +2817,11 @@ async def test_tracked_move_into_risk_fires_and_jitter_is_ignored(
     assert coordinator.data.position == HOME
     assert [e.data["new"] for e in events] == ["SLGT"]
 
-    calls = hub.api.point_ugcs.await_count
     hass.states.async_set("device_tracker.phone", "not_home",
                           {"latitude": HOME[0] + 0.001, "longitude": HOME[1]})
     await hass.async_block_till_done()
     assert coordinator.data.position == HOME
-    assert hub.api.point_ugcs.await_count == calls
+    assert len(events) == 1
 
 
 async def test_tracked_without_coordinates_is_unpositioned(hass: HomeAssistant) -> None:
@@ -3010,29 +2842,16 @@ async def test_tracked_without_coordinates_is_unpositioned(hass: HomeAssistant) 
 
 async def test_rapid_moves_last_position_wins(hass: HomeAssistant) -> None:
     hass.states.async_set("device_tracker.phone", "unknown", {})
-    hub = _hub_with_data(hass)
-    gate = asyncio.Event()
-
-    async def lookup(lat, lon):
-        if (lat, lon) == FAR:
-            await gate.wait()
-            return frozenset({"WYC001"})
-        return frozenset({"OKC027"})
-
-    hub.api.point_ugcs.side_effect = lookup
-    hub.alerts.data = alert_bundle([make_watch(612, ugcs=["OKC027"]),
-                                    make_watch(700, ugcs=["WYC001"])])
+    hub = _hub_with_data(hass, mds=[make_md(2104), make_md(2105, center=FAR)])
     coordinator = await _start(hass, tracked_entry(), hub)
 
     hass.states.async_set("device_tracker.phone", "x", {"latitude": FAR[0], "longitude": FAR[1]})
-    await asyncio.sleep(0)
     hass.states.async_set("device_tracker.phone", "x", {"latitude": HOME[0], "longitude": HOME[1]})
-    await hass.async_block_till_done(wait_background_tasks=False)
-    gate.set()
-    await hass.async_block_till_done(wait_background_tasks=True)
+    await hass.async_block_till_done()
 
     assert coordinator.data.position == HOME
-    assert [w.number for w in coordinator.data.alerts.watches] == [612]
+    assert coordinator.data.outlook.categorical[1] is RiskLevel.SLGT
+    assert [m.number for m in coordinator.data.alerts.mds] == [2104]
 
 
 async def test_missing_tracker_raises_repair_issue(hass: HomeAssistant) -> None:
@@ -3046,13 +2865,16 @@ async def test_missing_tracker_raises_repair_issue(hass: HomeAssistant) -> None:
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
-async def test_alerts_group_disabled_skips_lookup(hass: HomeAssistant) -> None:
-    hub = _hub_with_data(hass, watches=[make_watch()])
+async def test_alerts_group_disabled_skips_md_evaluation(hass: HomeAssistant) -> None:
+    events = async_capture_events(hass, EVENT_MD_ISSUED)
+    hub = _hub_with_data(hass)
     coordinator = await _start(
         hass, fixed_entry(options={CONF_GROUPS: [GROUP_CATEGORICAL]}), hub
     )
-    hub.api.point_ugcs.assert_not_awaited()
+    hub.push_alerts(alert_bundle(mds=[make_md()]))
+    await hass.async_block_till_done()
     assert coordinator.data.alerts is None
+    assert events == []
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -3083,9 +2905,8 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util.location import distance
 
-from .api.client import SpcApiError
 from .api.evaluate import AlertRisk, OutlookRisk, evaluate_alerts, evaluate_outlooks
-from .api.models import MesoscaleDiscussion, OutlookLayer, Watch
+from .api.models import MesoscaleDiscussion, OutlookLayer
 from .const import (
     ALL_GROUPS,
     CONF_GROUPS,
@@ -3096,7 +2917,6 @@ from .const import (
     DOMAIN,
     EVENT_MD_ISSUED,
     EVENT_RISK_CHANGED,
-    EVENT_WATCH_ISSUED,
     GROUP_ALERTS,
     ISSUE_MISSING_TRACKER,
     MODE_TRACKED,
@@ -3117,9 +2937,7 @@ class LocationData:
     alerts: AlertRisk | None
     layers: Mapping[str, OutlookLayer]
     updated: Mapping[str, datetime]
-    watches_updated: datetime | None
     mds_updated: datetime | None
-    ugcs_known: bool
 
 
 def position_from_state(state: State | None) -> Position | None:
@@ -3154,13 +2972,9 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         )
         self.groups: set[str] = set(conf.get(CONF_GROUPS, ALL_GROUPS))
         self._position: Position | None = None
-        self._ugcs: frozenset[str] | None = None
-        self._ugc_lookup_pending = False
-        self._ugc_error_logged = False
         self._outlook: OutlookRisk | None = None
         self._alerts: AlertRisk | None = None
         self._levels: dict[int, Any] | None = None
-        self._seen_watches: set[int] | None = None
         self._seen_mds: set[int] | None = None
 
     @property
@@ -3186,11 +3000,11 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
                     ),
                 )
             )
-            await self._async_set_position(
+            self._set_position(
                 position_from_state(self.hass.states.get(self.tracked_entity))
             )
         else:
-            await self._async_set_position(self.fixed_position)
+            self._set_position(self.fixed_position)
 
     # --- hub / tracker callbacks -------------------------------------------
 
@@ -3201,15 +3015,6 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
 
     @callback
     def _handle_alerts(self) -> None:
-        if (
-            GROUP_ALERTS in self.groups
-            and self._position is not None
-            and self._ugcs is None
-            and not self._ugc_lookup_pending
-        ):
-            self.config_entry.async_create_background_task(
-                self.hass, self._async_retry_ugcs(), f"{DOMAIN} zone lookup"
-            )
         self._evaluate_alerts()
         self._publish()
 
@@ -3217,15 +3022,12 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
     def _handle_tracker_event(self, event: Event[EventStateChangedData]) -> None:
         new_state = event.data["new_state"]
         self._check_tracker_exists(new_state)
-        self.config_entry.async_create_background_task(
-            self.hass,
-            self._async_set_position(position_from_state(new_state)),
-            f"{DOMAIN} position update",
-        )
+        self._set_position(position_from_state(new_state))
 
     # --- position ----------------------------------------------------------
 
-    async def _async_set_position(self, position: Position | None) -> None:
+    @callback
+    def _set_position(self, position: Position | None) -> None:
         if position is None:
             self._position = None
             self._publish()
@@ -3236,40 +3038,9 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         ):
             return
         self._position = position
-        if GROUP_ALERTS in self.groups:
-            self._ugcs = None
-            await self._async_refresh_ugcs()
-            if self._position != position:
-                return  # superseded by a newer move
         self._evaluate_outlooks()
         self._evaluate_alerts()
         self._publish()
-
-    async def _async_refresh_ugcs(self) -> None:
-        position = self._position
-        if position is None:
-            return
-        self._ugc_lookup_pending = True
-        try:
-            ugcs = await self.hub.api.point_ugcs(*position)
-        except (SpcApiError, ValueError) as err:
-            if not self._ugc_error_logged:
-                _LOGGER.warning(
-                    "Could not look up NWS zones for %s: %s", self.config_entry.title, err
-                )
-                self._ugc_error_logged = True
-        else:
-            if self._position == position:
-                self._ugcs = ugcs
-                self._ugc_error_logged = False
-        finally:
-            self._ugc_lookup_pending = False
-
-    async def _async_retry_ugcs(self) -> None:
-        await self._async_refresh_ugcs()
-        if self._ugcs is not None:
-            self._evaluate_alerts()
-            self._publish()
 
     # --- evaluation and events ----------------------------------------------
 
@@ -3306,19 +3077,6 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         self._levels = {**(self._levels or {}), **risk.categorical}
         self._outlook = risk
 
-    def _fire_watch(self, watch: Watch) -> None:
-        self.hass.bus.async_fire(
-            EVENT_WATCH_ISSUED,
-            {
-                **self._event_base(),
-                "number": watch.number,
-                "type": watch.kind,
-                "pds": watch.pds,
-                "expires": watch.expires.isoformat() if watch.expires else None,
-                "url": watch.url,
-            },
-        )
-
     def _fire_md(self, md: MesoscaleDiscussion) -> None:
         self.hass.bus.async_fire(
             EVENT_MD_ISSUED,
@@ -3336,18 +3094,7 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         bundle = self.hub.alerts.data
         if GROUP_ALERTS not in self.groups or bundle is None or self._position is None:
             return
-        risk = evaluate_alerts(
-            bundle.watches, bundle.mds, *self._position, self._ugcs or frozenset()
-        )
-        if self._ugcs is not None:
-            if self._seen_watches is not None:
-                for watch in risk.watches:
-                    if watch.number not in self._seen_watches:
-                        self._fire_watch(watch)
-            active_watches = {w.number for w in bundle.watches}
-            self._seen_watches = (
-                (self._seen_watches or set()) | {w.number for w in risk.watches}
-            ) & active_watches
+        risk = evaluate_alerts(bundle.mds, *self._position)
         if self._seen_mds is not None:
             for md in risk.mds:
                 if md.number not in self._seen_mds:
@@ -3370,9 +3117,7 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
                 alerts=self._alerts if positioned else None,
                 layers=outlooks.layers if outlooks else {},
                 updated=outlooks.updated if outlooks else {},
-                watches_updated=alerts.watches_updated if alerts else None,
                 mds_updated=alerts.mds_updated if alerts else None,
-                ugcs_known=self._ugcs is not None,
             )
         )
 
@@ -3402,13 +3147,11 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
             ir.async_delete_issue(self.hass, DOMAIN, self._issue_id)
 ```
 
-Note: `async_set_updated_data` on a coordinator with no `update_interval` is fine; this coordinator is never refreshed by polling.
+Note: `async_set_updated_data` on a coordinator with no `update_interval` is fine; this coordinator is never refreshed by polling. Position changes are handled synchronously (there is no network call per location), so the last tracker update always wins.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `.venv/bin/pytest tests/test_location.py -v` — Expected: 11 passed.
-
-If `test_rapid_moves_last_position_wins` hangs, the first lookup is not being superseded; check that `_async_set_position` returns early when `self._position != position` after the awaited lookup.
+Run: `.venv/bin/pytest tests/test_location.py -v` — Expected: 10 passed.
 
 - [ ] **Step 6: Commit**
 
@@ -3716,7 +3459,7 @@ class SpcConfigFlow(ConfigFlow, domain=DOMAIN):
         "title": "SPC polling",
         "data": {
           "outlook_interval_min": "Outlook poll interval (minutes)",
-          "alert_interval_min": "Watch and mesoscale discussion poll interval (minutes)"
+          "alert_interval_min": "Mesoscale discussion and watch feed poll interval (minutes)"
         }
       },
       "location": {
@@ -3736,7 +3479,7 @@ class SpcConfigFlow(ConfigFlow, domain=DOMAIN):
         "categorical": "Categorical risk (Days 1–3)",
         "probabilistic": "Tornado / wind / hail probabilities (Days 1–3)",
         "extended": "Days 4–8",
-        "alerts": "Watches and mesoscale discussions"
+        "alerts": "Mesoscale discussions"
       }
     }
   },
@@ -3774,8 +3517,8 @@ git commit -m "Add config flow for fixed and tracked locations"
 - Consumes: Tasks 10–12.
 - Produces:
   - `__init__.py`: `CONFIG_SCHEMA`, `async_setup`, `async_setup_entry`, `async_unload_entry`, `async_remove_entry`; `HUB_PLATFORMS = [Platform.SENSOR]` (Task 14 adds `Platform.IMAGE`), `LOCATION_PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]`. Hub `entry.runtime_data` is `SpcHub`; location `entry.runtime_data` is `LocationCoordinator`.
-  - `entity.py`: `SpcLocationEntity(coordinator, key)`, `SpcHubEntity(coordinator, key)`, `is_fresh(ts, max_age) -> bool`, `data_age(ts) -> int | None`, `watch_attributes(watch) -> dict`, `md_attributes(md) -> dict`, `async_remove_entities(hass, domain, unique_ids)`.
-  - Location entity ids for a location titled "Home": `sensor.spc_home_day_{1,2,3}_risk`, `sensor.spc_home_max_risk_next_3_days`, `sensor.spc_home_day_{1,2}_{tornado,wind,hail}_probability`, `sensor.spc_home_day_3_severe_probability`, `sensor.spc_home_day_{4..8}_severe_probability`, `binary_sensor.spc_home_tornado_watch`, `binary_sensor.spc_home_severe_thunderstorm_watch`, `binary_sensor.spc_home_mesoscale_discussion`.
+  - `entity.py`: `SpcLocationEntity(coordinator, key)`, `SpcHubEntity(coordinator, key)`, `is_fresh(ts, max_age) -> bool`, `data_age(ts) -> int | None`, `watch_attributes(watch) -> dict` (used by the hub watch count in Task 14), `md_attributes(md) -> dict`, `async_remove_entities(hass, domain, unique_ids)`.
+  - Location entity ids for a location titled "Home": `sensor.spc_home_day_{1,2,3}_risk`, `sensor.spc_home_max_risk_next_3_days`, `sensor.spc_home_day_{1,2}_{tornado,wind,hail}_probability`, `sensor.spc_home_day_3_severe_probability`, `sensor.spc_home_day_{4..8}_severe_probability`, `binary_sensor.spc_home_mesoscale_discussion`. There are no per-location watch entities.
   - `sensor.py` exports `async_setup_entry`, `LOCATION_SENSORS`; Task 14 extends it with hub sensors.
 
 - [ ] **Step 1: Add `setup_entry` to `tests/factories.py`**
@@ -3812,7 +3555,6 @@ from tests.factories import (
     alert_bundle,
     fixed_entry,
     make_md,
-    make_watch,
     outlook_bundle,
     risk_layers,
     setup_entry,
@@ -3823,7 +3565,7 @@ from tests.helpers import collection
 async def test_setup_creates_hub_entry_and_location_entities(
     hass: HomeAssistant, mock_api
 ) -> None:
-    mock_api.alerts = alert_bundle([make_watch(612, pds=True)], [make_md(2104)])
+    mock_api.alerts = alert_bundle(mds=[make_md(2104)])
     entry = fixed_entry()
     await setup_entry(hass, entry)
 
@@ -3861,15 +3603,12 @@ async def test_setup_creates_hub_entry_and_location_entities(
         == STATE_UNAVAILABLE
     )
 
-    watch = hass.states.get("binary_sensor.spc_home_tornado_watch")
-    assert watch.state == "on"
-    assert watch.attributes["number"] == 612
-    assert watch.attributes["pds"] is True
-    assert len(watch.attributes["items"]) == 1
-    assert hass.states.get("binary_sensor.spc_home_severe_thunderstorm_watch").state == "off"
     md = hass.states.get("binary_sensor.spc_home_mesoscale_discussion")
     assert md.state == "on"
+    assert md.attributes["number"] == 2104
     assert md.attributes["concerning"] == "Severe potential...Watch likely"
+    assert len(md.attributes["items"]) == 1
+    assert hass.states.get("binary_sensor.spc_home_tornado_watch") is None
 
 
 async def test_empty_layer_with_stale_metadata_is_none_and_available(
@@ -3894,7 +3633,7 @@ async def test_outlook_entities_go_unavailable_when_stale(
     await hass.async_block_till_done()
     assert hass.states.get("sensor.spc_home_day_1_risk").state == "SLGT"
     assert (
-        hass.states.get("binary_sensor.spc_home_tornado_watch").state
+        hass.states.get("binary_sensor.spc_home_mesoscale_discussion").state
         == STATE_UNAVAILABLE
     )
 
@@ -3908,7 +3647,7 @@ async def test_disabled_groups_create_no_entities(hass: HomeAssistant, mock_api)
     await setup_entry(hass, fixed_entry(options={CONF_GROUPS: [GROUP_CATEGORICAL]}))
     assert hass.states.get("sensor.spc_home_day_1_risk") is not None
     assert hass.states.get("sensor.spc_home_day_1_tornado_probability") is None
-    assert hass.states.get("binary_sensor.spc_home_tornado_watch") is None
+    assert hass.states.get("binary_sensor.spc_home_mesoscale_discussion") is None
 
 
 async def test_unloading_all_entries_stops_hub(hass: HomeAssistant, mock_api) -> None:
@@ -4041,7 +3780,6 @@ def watch_attributes(watch: Watch) -> dict[str, Any]:
     return {
         "number": watch.number,
         "type": watch.kind,
-        "expires": watch.expires.isoformat() if watch.expires else None,
         "pds": watch.pds,
         "url": watch.url,
     }
@@ -4321,18 +4059,13 @@ async def async_setup_entry(
 - [ ] **Step 7: Create `binary_sensor.py`**
 
 ```python
-"""Binary sensor platform for NOAA SPC watches and mesoscale discussions."""
+"""Binary sensor platform for NOAA SPC mesoscale discussions."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
-    BinarySensorEntity,
-    BinarySensorEntityDescription,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -4345,79 +4078,32 @@ from .entity import (
     data_age,
     is_fresh,
     md_attributes,
-    watch_attributes,
 )
 from .location import LocationCoordinator
 
-KIND_MD = "md"
+MD_KEY = "mesoscale_discussion"
 
 
-@dataclass(frozen=True, kw_only=True)
-class AlertBinarySensorDescription(BinarySensorEntityDescription):
-    kind: str
-
-
-ALERT_SENSORS: tuple[AlertBinarySensorDescription, ...] = (
-    AlertBinarySensorDescription(
-        key="tornado_watch",
-        name="Tornado watch",
-        device_class=BinarySensorDeviceClass.SAFETY,
-        kind="tornado",
-    ),
-    AlertBinarySensorDescription(
-        key="severe_thunderstorm_watch",
-        name="Severe thunderstorm watch",
-        device_class=BinarySensorDeviceClass.SAFETY,
-        kind="severe_thunderstorm",
-    ),
-    AlertBinarySensorDescription(
-        key="mesoscale_discussion",
-        name="Mesoscale discussion",
-        kind=KIND_MD,
-    ),
-)
-
-
-class AlertBinarySensor(SpcLocationEntity, BinarySensorEntity):
-    entity_description: AlertBinarySensorDescription
+class MesoscaleDiscussionBinarySensor(SpcLocationEntity, BinarySensorEntity):
+    _attr_name = "Mesoscale discussion"
     _unrecorded_attributes = frozenset({"summary", "items"})
 
-    def __init__(
-        self,
-        coordinator: LocationCoordinator,
-        description: AlertBinarySensorDescription,
-    ) -> None:
-        super().__init__(coordinator, description.key)
-        self.entity_description = description
-
-    def _updated(self):
-        data = self.coordinator.data
-        if self.entity_description.kind == KIND_MD:
-            return data.mds_updated
-        return data.watches_updated
+    def __init__(self, coordinator: LocationCoordinator) -> None:
+        super().__init__(coordinator, MD_KEY)
 
     def _items(self) -> list[dict[str, Any]]:
-        alerts = self.coordinator.data.alerts
-        if self.entity_description.kind == KIND_MD:
-            return [md_attributes(md) for md in alerts.mds]
-        return [
-            watch_attributes(w)
-            for w in alerts.watches
-            if w.kind == self.entity_description.kind
-        ]
+        return [md_attributes(md) for md in self.coordinator.data.alerts.mds]
 
     @property
     def available(self) -> bool:
         data = self.coordinator.data
-        if not (
+        return (
             super().available
             and data is not None
             and data.position is not None
             and data.alerts is not None
-            and is_fresh(self._updated(), ALERT_STALE)
-        ):
-            return False
-        return self.entity_description.kind == KIND_MD or data.ugcs_known
+            and is_fresh(data.mds_updated, ALERT_STALE)
+        )
 
     @property
     def is_on(self) -> bool:
@@ -4429,7 +4115,7 @@ class AlertBinarySensor(SpcLocationEntity, BinarySensorEntity):
         return {
             **(items[0] if items else {}),
             "items": items,
-            "data_age": data_age(self._updated()),
+            "data_age": data_age(self.coordinator.data.mds_updated),
         }
 
 
@@ -4438,13 +4124,9 @@ async def async_setup_entry(
 ) -> None:
     coordinator: LocationCoordinator = entry.runtime_data
     if GROUP_ALERTS not in coordinator.groups:
-        async_remove_entities(
-            hass,
-            Platform.BINARY_SENSOR,
-            (f"{entry.entry_id}_{d.key}" for d in ALERT_SENSORS),
-        )
+        async_remove_entities(hass, Platform.BINARY_SENSOR, [f"{entry.entry_id}_{MD_KEY}"])
         return
-    async_add_entities(AlertBinarySensor(coordinator, d) for d in ALERT_SENSORS)
+    async_add_entities([MesoscaleDiscussionBinarySensor(coordinator)])
 ```
 
 - [ ] **Step 8: Run tests to verify they pass**
@@ -4455,7 +4137,7 @@ Run: `.venv/bin/pytest tests -v` — Expected: all pass (including Task 12's con
 
 ```bash
 git add custom_components/noaa_spc tests/factories.py tests/test_location_entities.py
-git commit -m "Set up integration with location sensors and binary sensors"
+git commit -m "Set up integration with location sensors and MD binary sensor"
 ```
 
 ---
@@ -4469,7 +4151,7 @@ git commit -m "Set up integration with location sensors and binary sensors"
 
 **Interfaces:**
 - Consumes: `SpcHubEntity`, `is_fresh`, `data_age`, `watch_attributes`, `md_attributes` (Task 13); `IMAGE_PATHS` (Task 3); `SpcHub` (Task 10).
-- Produces: hub entity ids `sensor.noaa_spc_day_{1,2,3}_discussion`, `sensor.noaa_spc_day_4_8_discussion`, `sensor.noaa_spc_active_watches`, `sensor.noaa_spc_active_mesoscale_discussions`, `image.noaa_spc_day_{1,2,3}_outlook`, `image.noaa_spc_day_4_8_outlook`, and disabled-by-default `image.noaa_spc_day_{1,2}_{tornado,wind,hail}_outlook`.
+- Produces: hub entity ids `sensor.noaa_spc_day_{1,2,3}_discussion`, `sensor.noaa_spc_day_4_8_discussion`, `sensor.noaa_spc_active_watches` (national pulse check: state = number of active watches; attributes `tornado`, `severe_thunderstorm`, `pds` counts and `items`), `sensor.noaa_spc_active_mesoscale_discussions`, `image.noaa_spc_day_{1,2,3}_outlook`, `image.noaa_spc_day_4_8_outlook`, and disabled-by-default `image.noaa_spc_day_{1,2}_{tornado,wind,hail}_outlook`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -4496,7 +4178,7 @@ TEXT = TextProduct(text="Full discussion", summary="Storms today.", forecaster="
 
 async def test_hub_sensors(hass: HomeAssistant, mock_api) -> None:
     mock_api.outlooks = outlook_bundle(risk_layers(), texts={"day1": TEXT})
-    mock_api.alerts = alert_bundle([make_watch(612), make_watch(613, ugcs=["TXC485"])],
+    mock_api.alerts = alert_bundle([make_watch(612, pds=True), make_watch(613, "severe_thunderstorm")],
                                    [make_md(2104)])
     await setup_entry(hass, fixed_entry())
 
@@ -4511,6 +4193,9 @@ async def test_hub_sensors(hass: HomeAssistant, mock_api) -> None:
     watches = hass.states.get("sensor.noaa_spc_active_watches")
     assert watches.state == "2"
     assert [i["number"] for i in watches.attributes["items"]] == [612, 613]
+    assert watches.attributes["tornado"] == 1
+    assert watches.attributes["severe_thunderstorm"] == 1
+    assert watches.attributes["pds"] == 1
     assert hass.states.get("sensor.noaa_spc_active_mesoscale_discussions").state == "1"
 
 
@@ -4598,7 +4283,14 @@ HUB_SENSORS: tuple[HubSensorDescription, ...] = (
         name="Active watches",
         feed="alerts",
         value_fn=lambda bundle: len(bundle.watches),
-        attrs_fn=lambda bundle: {"items": [watch_attributes(w) for w in bundle.watches]},
+        attrs_fn=lambda bundle: {
+            "tornado": sum(w.kind == "tornado" for w in bundle.watches),
+            "severe_thunderstorm": sum(
+                w.kind == "severe_thunderstorm" for w in bundle.watches
+            ),
+            "pds": sum(w.pds for w in bundle.watches),
+            "items": [watch_attributes(w) for w in bundle.watches],
+        },
         updated_fn=lambda bundle: bundle.watches_updated,
         max_age=ALERT_STALE,
     ),
@@ -4801,7 +4493,7 @@ async def test_fixed_location_options_move_and_drop_groups(
 ) -> None:
     entry = fixed_entry()
     await setup_entry(hass, entry)
-    assert er.async_get(hass).async_get("binary_sensor.spc_home_tornado_watch")
+    assert er.async_get(hass).async_get("binary_sensor.spc_home_mesoscale_discussion")
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["step_id"] == "location"
@@ -4823,7 +4515,7 @@ async def test_fixed_location_options_move_and_drop_groups(
     coordinator = entry.runtime_data
     assert coordinator.data.position == (36.0, -96.0)
     assert coordinator.groups == {GROUP_CATEGORICAL}
-    assert er.async_get(hass).async_get("binary_sensor.spc_home_tornado_watch") is None
+    assert er.async_get(hass).async_get("binary_sensor.spc_home_mesoscale_discussion") is None
     assert er.async_get(hass).async_get("sensor.spc_home_day_1_tornado_probability") is None
 
 
@@ -5012,7 +4704,7 @@ git commit -m "Add hub and location options flows"
 
 **Interfaces:**
 - Consumes: event names and payloads from Task 11.
-- Produces: blueprint inputs `location`, `threshold`, `days`, `include_watches`, `include_mds`, `notify`; variable `message` available to `notify` actions.
+- Produces: blueprint inputs `location`, `threshold`, `days`, `include_mds`, `notify`; variable `message` available to `notify` actions.
 
 - [ ] **Step 1: Write failing test**
 
@@ -5033,7 +4725,7 @@ def test_blueprint_is_valid() -> None:
     )
     assert blueprint.domain == "automation"
     assert set(blueprint.inputs) == {
-        "location", "threshold", "days", "include_watches", "include_mds", "notify",
+        "location", "threshold", "days", "include_mds", "notify",
     }
 ```
 
@@ -5050,8 +4742,8 @@ blueprint:
   name: "NOAA SPC: notify on severe weather"
   description: >-
     Runs your notification actions when the SPC categorical risk for a location
-    rises to a chosen level, or when a watch or mesoscale discussion newly covers
-    it. Use the `message` variable in your actions, for example
+    rises to a chosen level, or when an SPC mesoscale discussion newly covers it.
+    Use the `message` variable in your actions, for example
     `message: "{{ message }}"`.
   domain: automation
   source_url: https://github.com/majoragee/hassio-noaa-spc/blob/main/blueprints/automation/noaa_spc/notify_severe_risk.yaml
@@ -5092,11 +4784,6 @@ blueprint:
               value: "2"
             - label: Day 3
               value: "3"
-    include_watches:
-      name: Notify on new watches
-      default: true
-      selector:
-        boolean: {}
     include_mds:
       name: Notify on new mesoscale discussions
       default: true
@@ -5117,11 +4804,6 @@ triggers:
       config_entry_id: !input location
     id: risk
   - trigger: event
-    event_type: noaa_spc_watch_issued
-    event_data:
-      config_entry_id: !input location
-    id: watch
-  - trigger: event
     event_type: noaa_spc_md_issued
     event_data:
       config_entry_id: !input location
@@ -5130,14 +4812,11 @@ triggers:
 variables:
   threshold: !input threshold
   days: !input days
-  include_watches: !input include_watches
   include_mds: !input include_mds
   message: >-
     {% set e = trigger.event.data %}
     {% if trigger.id == 'risk' %}
     Day {{ e.day }} SPC risk for {{ e.location_name }} upgraded to {{ e.new }} (was {{ e.old }}).
-    {% elif trigger.id == 'watch' %}
-    {{ 'PDS ' if e.pds else '' }}{{ e.type | replace('_', ' ') | title }} Watch #{{ e.number }} now covers {{ e.location_name }}{% if e.expires %} until {{ as_timestamp(e.expires) | timestamp_custom('%-I:%M %p') }}{% endif %}.
     {% else %}
     SPC Mesoscale Discussion #{{ e.number }} covers {{ e.location_name }}: {{ e.concerning }}{% if e.watch_probability is not none %} (watch probability {{ e.watch_probability }}%){% endif %}.
     {% endif %}
@@ -5148,8 +4827,6 @@ conditions:
       {% set e = trigger.event.data %}
       {% if trigger.id == 'risk' %}
       {{ e.upgraded and e.new_level >= (threshold | int) and (e.day | string) in days }}
-      {% elif trigger.id == 'watch' %}
-      {{ include_watches }}
       {% else %}
       {{ include_mds }}
       {% endif %}
@@ -5164,13 +4841,13 @@ Run: `.venv/bin/pytest tests/test_blueprint.py -v` — Expected: 1 passed.
 - [ ] **Step 5: Write the README**
 
 Replace `README.md` with sections (write the prose; keep it factual):
-1. **What it does** — national SPC outlook maps/discussions; per-location Day 1–3 categorical risk, Day 1–2 tornado/wind/hail and Day 3 any-severe probabilities with significant flags, Day 4–8 probabilities, watches and MDs; events; blueprint.
+1. **What it does** — national SPC outlook maps/discussions; per-location Day 1–3 categorical risk, Day 1–2 tornado/wind/hail and Day 3 any-severe probabilities with significant flags, Day 4–8 probabilities and mesoscale discussions; national active-watch count; events; blueprint. State plainly that location-specific watches/warnings are out of scope and belong to an NWS alerts integration.
 2. **Installation** — HACS → Custom repositories → add `https://github.com/majoragee/hassio-noaa-spc` (category Integration) → install → restart; or copy `custom_components/noaa_spc` manually.
 3. **Setup** — Settings → Devices & services → Add integration → "NOAA Storm Prediction Center" → Fixed or Tracked. The "NOAA SPC" hub entry is created automatically.
 4. **Entities** — table of location entities (ids from Task 13 Produces) and hub entities (ids from Task 14 Produces) with state and key attributes.
-5. **Events** — the three event types with every payload field (from Task 11 Produces).
+5. **Events** — the two event types with every payload field (from Task 11 Produces).
 6. **Blueprint** — import link `https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fmajoragee%2Fhassio-noaa-spc%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnoaa_spc%2Fnotify_severe_risk.yaml` and an example notify action using `{{ message }}`.
-7. **Data sources and limits** — SPC products (`spc.noaa.gov`) and NWS API (`api.weather.gov`); CONUS only; watches matched by county/zone; polling defaults; staleness rules.
+7. **Data sources and limits** — SPC products only (`spc.noaa.gov`, including the `spcwwrss.xml` watch feed for the national count); CONUS only; polling defaults; staleness rules.
 8. **Disclaimer** — not affiliated with NOAA/NWS; not for life-safety decisions; always heed official warnings.
 
 - [ ] **Step 6: Commit**
@@ -5189,7 +4866,7 @@ git commit -m "Add severe weather notification blueprint and README"
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: regression coverage against real SPC/NWS payloads.
+- Produces: regression coverage against real SPC payloads.
 
 - [ ] **Step 1: Capture fixtures**
 
@@ -5206,11 +4883,10 @@ for d in 4 5 6 7 8; do curl -sf -A "$UA" "$B/exper/day4-8/day${d}prob.lyr.geojso
 for d in 1 2 3; do curl -sf -A "$UA" "$B/outlook/day${d}otlk.txt" -o "$D/text/day${d}otlk.txt"; done
 curl -sf -A "$UA" "$B/exper/day4-8/" -o "$D/text/day48.html"
 curl -sf -A "$UA" "$B/md/2026/md2104.html" -o "$D/md2104.html"
-curl -sf -A "$UA" -H "Accept: application/geo+json" \
-  "https://api.weather.gov/alerts?event=Tornado%20Watch&message_type=alert&limit=1" -o "$D/watch_alerts.json"
+curl -sf -A "$UA" "$B/spcwwrss.xml" -o "$D/spcwwrss.xml"
 ls -R $D | head -50
 ```
-Expected: 22 layer files, 4 text files, `md2104.html`, `watch_alerts.json` (non-empty `features`). If `watch_alerts.json` has no features (no tornado watch in the NWS archive window), rerun with `event=Severe%20Thunderstorm%20Watch`.
+Expected: 22 layer files, 4 text files, `md2104.html`, `spcwwrss.xml`. The watch feed is captured as-is; on a quiet day it holds only the "No watches are valid" placeholder, which is still a useful regression fixture. If watches happen to be active when you capture, also save a copy as `$D/spcwwrss_active.xml` and report the item titles/links in your task summary so the Task 6 assumptions can be confirmed.
 
 - [ ] **Step 2: Write live-fixture parser tests**
 
@@ -5226,7 +4902,7 @@ from custom_components.noaa_spc.api.mds import parse_md_page
 from custom_components.noaa_spc.api.models import RiskLevel
 from custom_components.noaa_spc.api.outlooks import categorical_at, parse_layer
 from custom_components.noaa_spc.api.text import parse_text_product
-from custom_components.noaa_spc.api.watches import parse_watch_alerts
+from custom_components.noaa_spc.api.watches import parse_watch_feed
 
 LIVE = Path(__file__).parent.parent / "fixtures" / "live"
 
@@ -5256,10 +4932,14 @@ def test_live_md() -> None:
     assert point_in_polygon(-107.0, 47.0, md.polygon)
 
 
-def test_live_watch_alerts() -> None:
-    watches = parse_watch_alerts(json.loads((LIVE / "watch_alerts.json").read_text()))
-    assert watches
-    assert all(w.number > 0 and w.ugcs for w in watches)
+def test_live_watch_feed() -> None:
+    raw = (LIVE / "spcwwrss.xml").read_bytes()
+    watches = parse_watch_feed(raw)
+    if b"No watches are valid" in raw:
+        assert watches == ()
+    else:
+        assert watches
+        assert all(w.number > 0 and w.url.endswith(".html") for w in watches)
 
 
 def test_risk_level_labels_in_live_categorical_layers_are_known() -> None:
@@ -5272,7 +4952,6 @@ def test_risk_level_labels_in_live_categorical_layers_are_known() -> None:
 
 `tests/test_end_to_end.py`:
 ```python
-import json
 from pathlib import Path
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -5282,11 +4961,11 @@ from custom_components.noaa_spc.api.products import (
     IMAGE_PATHS,
     LAYER_PATHS,
     MD_FEED_PATH,
-    NWS_BASE,
     SPC_BASE,
     TEXT_PATHS,
-    WATCH_ALERTS_URL,
+    WATCH_FEED_PATH,
 )
+from custom_components.noaa_spc.api.watches import parse_watch_feed
 from tests.factories import fixed_entry, setup_entry
 
 LIVE = Path(__file__).parent / "fixtures" / "live"
@@ -5305,18 +4984,13 @@ async def test_full_setup_against_live_payloads(hass: HomeAssistant, aioclient_m
     for key, (path, _) in IMAGE_PATHS.items():
         aioclient_mock.get(SPC_BASE + path, content=b"IMG" + key.encode())
 
-    alerts = json.loads((LIVE / "watch_alerts.json").read_text())
-    first_ugc = alerts["features"][0]["properties"]["geocode"]["UGC"][0]
-    aioclient_mock.get(WATCH_ALERTS_URL, json=alerts)
+    watch_feed = (LIVE / "spcwwrss.xml").read_text()
+    aioclient_mock.get(SPC_BASE + WATCH_FEED_PATH, text=watch_feed)
     aioclient_mock.get(
         SPC_BASE + MD_FEED_PATH,
         text=f'<rss version="2.0"><channel><item><link>{MD_URL}</link></item></channel></rss>',
     )
     aioclient_mock.get(MD_URL, text=(LIVE / "md2104.html").read_text())
-    aioclient_mock.get(
-        f"{NWS_BASE}points/{POINT[0]},{POINT[1]}",
-        json={"properties": {"county": f"https://api.weather.gov/zones/county/{first_ugc}"}},
-    )
 
     await setup_entry(hass, fixed_entry(*POINT, title="Home"))
 
@@ -5337,13 +5011,11 @@ async def test_full_setup_against_live_payloads(hass: HomeAssistant, aioclient_m
         assert state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN), entity_id
 
     assert hass.states.get("binary_sensor.spc_home_mesoscale_discussion").state == "on"
-    watch_kind = alerts["features"][0]["properties"]["event"]
-    watch_entity = (
-        "binary_sensor.spc_home_tornado_watch"
-        if watch_kind == "Tornado Watch"
-        else "binary_sensor.spc_home_severe_thunderstorm_watch"
+    expected_watches = len(parse_watch_feed(watch_feed))
+    assert hass.states.get("sensor.noaa_spc_active_watches").state == str(expected_watches)
+    assert not any(
+        "watch" in state.entity_id for state in hass.states.async_all("binary_sensor")
     )
-    assert hass.states.get(watch_entity).state == "on"
 ```
 
 - [ ] **Step 4: Run the full suite and lint**
@@ -5355,7 +5027,7 @@ Run: `.venv/bin/ruff check . && .venv/bin/ruff format --check .` — Expected: c
 
 ```bash
 git add tests/fixtures tests/api/test_live_fixtures.py tests/test_end_to_end.py
-git commit -m "Add live SPC/NWS fixtures and end-to-end smoke test"
+git commit -m "Add live SPC fixtures and end-to-end smoke test"
 ```
 
 ---
@@ -5366,10 +5038,10 @@ git commit -m "Add live SPC/NWS fixtures and end-to-end smoke test"
 |---|---|
 | §2 Data sources | 3, 5, 6, 7, 8, 17 |
 | §3 Architecture (hub + per-location, api/ HA-free) | 8, 10, 11, 13 |
-| §4 Per-location sensors/binary sensors/groups | 13, 15 |
+| §4 Per-location sensors/MD binary sensor/groups | 13, 15 |
 | §4 Events + baseline + dedupe | 11 |
 | §4 Location resolution, threshold, unavailable without coords | 11 |
-| §5 Hub entities, images, recorder exclusions | 13, 14 |
+| §5 Hub entities (incl. national watch count), images, recorder exclusions | 6, 13, 14 |
 | §5 Hub options | 10, 15 |
 | §6 Config flow, CONUS warning, duplicates, hub auto-create | 12, 13 |
 | §7 Error handling (stale, malformed, empty, repairs, startup) | 8, 11, 13 |
