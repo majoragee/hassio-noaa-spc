@@ -32,6 +32,10 @@ class SpcClient:
         # url -> (etag, last_modified, body)
         self._cache: dict[str, tuple[str | None, str | None, bytes]] = {}
 
+    def invalidate(self, url: str) -> None:
+        """Drop the cached validators/body so the next fetch is unconditional."""
+        self._cache.pop(url, None)
+
     async def fetch(
         self, url: str, *, accept: str | None = None, conditional: bool = True
     ) -> Fetched:

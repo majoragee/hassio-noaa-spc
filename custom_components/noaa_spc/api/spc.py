@@ -79,7 +79,11 @@ class SpcApi:
                 fetched = await self._get(SPC_BASE + path)
                 if fetched.changed or key not in layers:
                     layers[key] = parse_layer(json.loads(fetched.body))
-            except (SpcApiError, ValueError) as err:
+            except SpcApiError as err:
+                self._failed(name, err)
+                return
+            except ValueError as err:
+                self._client.invalidate(SPC_BASE + path)
                 self._failed(name, err)
                 return
             updated[name] = _now()
@@ -93,7 +97,11 @@ class SpcApi:
                     texts[key] = parse_text_product(
                         fetched.body.decode("utf-8", "replace")
                     )
-            except (SpcApiError, ValueError) as err:
+            except SpcApiError as err:
+                self._failed(name, err)
+                return
+            except ValueError as err:
+                self._client.invalidate(SPC_BASE + path)
                 self._failed(name, err)
                 return
             updated[name] = _now()
@@ -148,8 +156,12 @@ class SpcApi:
                         md = parse_md_page(page.body.decode("utf-8", "replace"), url)
                     except (SpcApiError, ValueError) as err:
                         self._failed(f"md:{number}", err)
+                        md = next((m for m in mds if m.number == number), None)
+                        if md is not None:
+                            current.append(md)
                         continue
                     self._md_cache[number] = md
+                    self._succeeded(f"md:{number}")
                 current.append(md)
             active = {number for number, _ in entries}
             self._md_cache = {n: m for n, m in self._md_cache.items() if n in active}

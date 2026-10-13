@@ -82,3 +82,15 @@ async def test_network_errors_wrapped(session, exc: Exception) -> None:
         with pytest.raises(SpcApiError) as err:
             await client.fetch(URL_A)
     assert err.value.status is None
+
+
+async def test_invalidate_drops_validators(session) -> None:
+    client = SpcClient(session)
+    with aioresponses() as mock:
+        mock.get(URL_A, status=200, body=b"x", headers={"ETag": '"1"'}, repeat=True)
+        await client.fetch(URL_A)
+        client.invalidate(URL_A)
+        client.invalidate("https://www.spc.noaa.gov/unknown")  # no-op
+        again = await client.fetch(URL_A)
+        assert "If-None-Match" not in _sent_headers(mock, URL_A, 1)
+    assert again.changed is True

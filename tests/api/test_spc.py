@@ -132,3 +132,45 @@ async def test_watch_feed_failure_does_not_block_mds(api: SpcApi) -> None:
     assert bundle.watches_updated is None
     assert [m.number for m in bundle.mds] == [2104]
     assert bundle.mds_updated is not None
+
+
+async def test_md_page_failure_keeps_previous_copy_and_skips_unknown(
+    api: SpcApi,
+) -> None:
+    md_url_2 = "https://www.spc.noaa.gov/products/md/md2105.html"
+    feed = MD_FEED.replace(
+        "</channel>", f"<item><link>{md_url_2}</link></item></channel>"
+    )
+    with aioresponses() as mock:
+        mock.get(SPC_BASE + WATCH_FEED_PATH, body=WATCH_FEED)
+        mock.get(SPC_BASE + MD_FEED_PATH, body=MD_FEED)
+        mock.get(MD_URL, body=MD_HTML)
+        first = await api.fetch_alerts(None)
+    assert [m.number for m in first.mds] == [2104]
+    async with aiohttp.ClientSession() as session:
+        fresh = SpcApi(SpcClient(session))  # empty MD cache forces page refetch
+        with aioresponses() as mock:
+            mock.get(SPC_BASE + WATCH_FEED_PATH, body=WATCH_FEED)
+            mock.get(SPC_BASE + MD_FEED_PATH, body=feed)
+            mock.get(MD_URL, status=503)
+            mock.get(md_url_2, status=503)
+            second = await fresh.fetch_alerts(first)
+    assert second.mds == first.mds
+
+
+async def test_unparseable_body_is_not_masked_by_304(api: SpcApi) -> None:
+    good = {
+        "body": json.dumps(collection(feature("SLGT", square(*HOME)))),
+        "headers": {"ETag": '"1"'},
+    }
+    bad = {"body": "not json", "headers": {"ETag": '"2"'}, "repeat": True}
+    with aioresponses() as mock:
+        _register_outlooks(mock, {"day1_cat": good})
+        first = await api.fetch_outlooks(None)
+    with aioresponses() as mock:
+        _register_outlooks(mock, {"day1_cat": bad})
+        second = await api.fetch_outlooks(first)
+        third = await api.fetch_outlooks(second)
+    for bundle in (second, third):
+        assert categorical_at(bundle.layers["day1_cat"], *HOME) is RiskLevel.SLGT
+        assert bundle.updated["layer:day1_cat"] == first.updated["layer:day1_cat"]
