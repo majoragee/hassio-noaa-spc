@@ -86,3 +86,37 @@ def test_pds_detected(title: str, description: str) -> None:
 def test_malformed_feed_rejected() -> None:
     with pytest.raises(WatchParseError):
         parse_watch_feed(b"<rss><channel>")
+
+
+def test_svr_watch_mentioning_tornado_stays_severe_thunderstorm() -> None:
+    feed = _feed(
+        _item(
+            "https://www.spc.noaa.gov/products/watch/ww0613.html",
+            "SPC Severe Thunderstorm Watch 613",
+            "A tornado or two are possible in the watch area.",
+        )
+    )
+    assert parse_watch_feed(feed)[0].kind == "severe_thunderstorm"
+
+
+def test_ordinary_text_is_not_pds() -> None:
+    feed = _feed(
+        _item(
+            "https://www.spc.noaa.gov/products/watch/ww0612.html",
+            "SPC Tornado Watch 612",
+            "Scattered severe storms with large hail are possible.",
+        )
+    )
+    assert parse_watch_feed(feed)[0].pds is False
+
+
+def test_placeholder_mixed_with_active_watch_yields_only_watch() -> None:
+    feed = _feed(
+        PLACEHOLDER,
+        _item(
+            "https://www.spc.noaa.gov/products/watch/ww0612.html",
+            "SPC Tornado Watch 612",
+        ),
+    )
+    watches = parse_watch_feed(feed)
+    assert [(w.number, w.kind) for w in watches] == [(612, "tornado")]

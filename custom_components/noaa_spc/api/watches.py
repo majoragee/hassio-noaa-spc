@@ -13,6 +13,10 @@ _PAGE_RE = re.compile(r"/watch/(?:\d{4}/)?ww\d{4}\.html$")
 _PDS_RE = re.compile(r"\bPDS\b|PARTICULARLY DANGEROUS SITUATION")
 
 
+_TORNADO_PHRASE = "TORNADO WATCH"
+_SVR_PHRASE = "SEVERE THUNDERSTORM WATCH"
+
+
 class WatchParseError(ValueError):
     """Raised when the SPC watch feed cannot be parsed."""
 
@@ -20,8 +24,21 @@ class WatchParseError(ValueError):
 @dataclass
 class _Group:
     url: str
-    tornado: bool = False
+    title_tornado: bool = False
+    title_svr: bool = False
+    desc_tornado: bool = False
+    desc_svr: bool = False
     pds: bool = False
+
+
+def _kind(group: _Group) -> str:
+    if group.title_tornado:
+        return "tornado"
+    if group.title_svr:
+        return "severe_thunderstorm"
+    if group.desc_tornado:
+        return "tornado"
+    return "severe_thunderstorm"
 
 
 def parse_watch_feed(xml: bytes | str) -> tuple[Watch, ...]:
@@ -39,14 +56,17 @@ def parse_watch_feed(xml: bytes | str) -> tuple[Watch, ...]:
         group = groups.setdefault(number, _Group(url=link))
         if _PAGE_RE.search(link) and not _PAGE_RE.search(group.url):
             group.url = link
-        text = f"{item.findtext('title') or ''} {item.findtext('description') or ''}"
-        upper = text.upper()
-        group.tornado = group.tornado or "TORNADO" in upper
-        group.pds = group.pds or bool(_PDS_RE.search(upper))
+        title = (item.findtext("title") or "").upper()
+        desc = (item.findtext("description") or "").upper()
+        group.title_tornado |= _TORNADO_PHRASE in title
+        group.title_svr |= _SVR_PHRASE in title
+        group.desc_tornado |= _TORNADO_PHRASE in desc
+        group.desc_svr |= _SVR_PHRASE in desc
+        group.pds = group.pds or bool(_PDS_RE.search(f"{title} {desc}"))
     return tuple(
         Watch(
             number=number,
-            kind="tornado" if group.tornado else "severe_thunderstorm",
+            kind=_kind(group),
             pds=group.pds,
             url=group.url,
         )
