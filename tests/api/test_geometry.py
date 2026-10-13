@@ -37,8 +37,8 @@ def test_empty_polygon_is_never_inside() -> None:
 
 
 def test_vertex_does_not_raise() -> None:
-    point_in_polygon(0.0, 0.0, SQUARE)
-    point_in_polygon(10.0, 10.0, SQUARE)
+    assert isinstance(point_in_polygon(0.0, 0.0, SQUARE), bool)
+    assert isinstance(point_in_polygon(10.0, 10.0, SQUARE), bool)
 
 
 def test_point_in_any_multipolygon() -> None:
