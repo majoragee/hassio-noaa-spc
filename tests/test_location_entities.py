@@ -4,6 +4,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -185,3 +186,22 @@ async def test_unchanged_alert_tick_writes_no_state(
     assert [
         e for e in events if e.data["entity_id"] == "sensor.spc_home_day_1_risk"
     ] == []
+
+
+async def test_update_entity_service_succeeds(
+    hass: HomeAssistant, mock_api, caplog
+) -> None:
+    await async_setup_component(hass, "homeassistant", {})
+    await setup_entry(hass, fixed_entry())
+
+    await hass.services.async_call(
+        "homeassistant",
+        "update_entity",
+        {"entity_id": "sensor.spc_home_day_1_risk"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get("sensor.spc_home_day_1_risk").state == "SLGT"
+    assert "not implemented" not in caplog.text
+    assert "Error" not in caplog.text

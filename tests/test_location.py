@@ -211,3 +211,20 @@ async def test_alerts_group_disabled_skips_md_evaluation(hass: HomeAssistant) ->
     await hass.async_block_till_done()
     assert coordinator.data.alerts is None
     assert events == []
+
+
+async def test_manual_refresh_reevaluates_without_events(
+    hass: HomeAssistant, caplog
+) -> None:
+    risk_events = async_capture_events(hass, EVENT_RISK_CHANGED)
+    hub = _hub_with_data(hass, mds=[make_md()])
+    coordinator = await _start(hass, fixed_entry(), hub)
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data.position == HOME
+    assert coordinator.data.outlook.categorical[1] is RiskLevel.SLGT
+    assert risk_events == []
+    assert "not implemented" not in caplog.text

@@ -232,21 +232,28 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         ) & active_mds
         self._alerts = risk
 
-    @callback
-    def _publish(self) -> None:
+    def _build_data(self) -> LocationData:
         outlooks = self.hub.outlooks.data
         alerts = self.hub.alerts.data
         positioned = self._position is not None
-        self.async_set_updated_data(
-            LocationData(
-                position=self._position,
-                outlook=self._outlook if positioned else None,
-                alerts=self._alerts if positioned else None,
-                layers=outlooks.layers if outlooks else {},
-                updated=outlooks.updated if outlooks else {},
-                mds_updated=alerts.mds_updated if alerts else None,
-            )
+        return LocationData(
+            position=self._position,
+            outlook=self._outlook if positioned else None,
+            alerts=self._alerts if positioned else None,
+            layers=outlooks.layers if outlooks else {},
+            updated=outlooks.updated if outlooks else {},
+            mds_updated=alerts.mds_updated if alerts else None,
         )
+
+    @callback
+    def _publish(self) -> None:
+        self.async_set_updated_data(self._build_data())
+
+    async def _async_update_data(self) -> LocationData:
+        """Manual refresh (e.g. homeassistant.update_entity): re-evaluate."""
+        self._evaluate_outlooks()
+        self._evaluate_alerts()
+        return self._build_data()
 
     # --- repairs -------------------------------------------------------------
 
