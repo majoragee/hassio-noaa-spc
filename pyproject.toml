@@ -1,6 +1,6 @@
 [project]
 name = "hassio-noaa-spc"
-version = "0.1.0"
+version = "0.1.1"
 description = "Home Assistant integration for NOAA Storm Prediction Center outlooks and mesoscale discussions"
 requires-python = ">=3.13"
 license = "MIT"

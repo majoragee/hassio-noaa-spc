@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 SPC_BASE = "https://www.spc.noaa.gov/products/"
-USER_AGENT = "hassio-noaa-spc/0.1.0 (https://github.com/majoragee/hassio-noaa-spc)"
+USER_AGENT = "hassio-noaa-spc/0.1.1 (https://github.com/majoragee/hassio-noaa-spc)"
 
 HAZARDS = ("torn", "wind", "hail")
 
