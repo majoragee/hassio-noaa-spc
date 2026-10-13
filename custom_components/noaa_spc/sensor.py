@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -19,13 +20,22 @@ from homeassistant.helpers.typing import StateType
 
 from .api.models import RISK_STATES
 from .const import (
+    ALERT_STALE,
     GROUP_CATEGORICAL,
     GROUP_EXTENDED,
     GROUP_PROBABILISTIC,
     OUTLOOK_STALE,
 )
-from .entity import SpcLocationEntity, async_remove_entities, data_age, is_fresh
-from .hub import is_hub_entry
+from .entity import (
+    SpcHubEntity,
+    SpcLocationEntity,
+    async_remove_entities,
+    data_age,
+    is_fresh,
+    md_attributes,
+    watch_attributes,
+)
+from .hub import SpcHub, is_hub_entry
 from .location import LocationCoordinator, LocationData
 
 
@@ -197,10 +207,115 @@ class LocationSensor(SpcLocationEntity, SensorEntity):
         }
 
 
+@dataclass(frozen=True, kw_only=True)
+class HubSensorDescription(SensorEntityDescription):
+    feed: str  # "outlooks" or "alerts"
+    value_fn: Callable[[Any], StateType | datetime]
+    attrs_fn: Callable[[Any], dict[str, Any]]
+    updated_fn: Callable[[Any], datetime | None]
+    max_age: timedelta
+
+
+def _discussion(text_key: str, layer_key: str, name: str) -> HubSensorDescription:
+    def value(bundle: Any) -> datetime | None:
+        layer = bundle.layers.get(layer_key)
+        return layer.issued if layer else None
+
+    def attrs(bundle: Any) -> dict[str, Any]:
+        text = bundle.texts.get(text_key)
+        if text is None:
+            return {}
+        return {
+            "text": text.text,
+            "summary": text.summary,
+            "forecaster": text.forecaster,
+        }
+
+    return HubSensorDescription(
+        key=f"{text_key}_discussion",
+        name=name,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        feed="outlooks",
+        value_fn=value,
+        attrs_fn=attrs,
+        updated_fn=lambda bundle: bundle.updated.get(f"text:{text_key}"),
+        max_age=OUTLOOK_STALE,
+    )
+
+
+HUB_SENSORS: tuple[HubSensorDescription, ...] = (
+    _discussion("day1", "day1_cat", "Day 1 discussion"),
+    _discussion("day2", "day2_cat", "Day 2 discussion"),
+    _discussion("day3", "day3_cat", "Day 3 discussion"),
+    _discussion("day48", "day4_prob", "Day 4–8 discussion"),
+    HubSensorDescription(
+        key="active_watches",
+        name="Active watches",
+        feed="alerts",
+        value_fn=lambda bundle: len(bundle.watches),
+        attrs_fn=lambda bundle: {
+            "tornado": sum(w.kind == "tornado" for w in bundle.watches),
+            "severe_thunderstorm": sum(
+                w.kind == "severe_thunderstorm" for w in bundle.watches
+            ),
+            "pds": sum(w.pds for w in bundle.watches),
+            "items": [watch_attributes(w) for w in bundle.watches],
+        },
+        updated_fn=lambda bundle: bundle.watches_updated,
+        max_age=ALERT_STALE,
+    ),
+    HubSensorDescription(
+        key="active_mds",
+        name="Active mesoscale discussions",
+        feed="alerts",
+        value_fn=lambda bundle: len(bundle.mds),
+        attrs_fn=lambda bundle: {"items": [md_attributes(m) for m in bundle.mds]},
+        updated_fn=lambda bundle: bundle.mds_updated,
+        max_age=ALERT_STALE,
+    ),
+)
+
+
+class HubSensor(SpcHubEntity, SensorEntity):
+    entity_description: HubSensorDescription
+    _unrecorded_attributes = frozenset({"text", "summary", "items"})
+
+    def __init__(self, hub: SpcHub, description: HubSensorDescription) -> None:
+        coordinator = hub.outlooks if description.feed == "outlooks" else hub.alerts
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
+
+    @property
+    def available(self) -> bool:
+        data = self.coordinator.data
+        return (
+            super().available
+            and data is not None
+            and is_fresh(
+                self.entity_description.updated_fn(data),
+                self.entity_description.max_age,
+            )
+        )
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        return {
+            **self.entity_description.attrs_fn(data),
+            "data_age": data_age(self.entity_description.updated_fn(data)),
+        }
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     if is_hub_entry(entry):
+        hub: SpcHub = entry.runtime_data
+        async_add_entities(HubSensor(hub, d) for d in HUB_SENSORS)
         return
     coordinator: LocationCoordinator = entry.runtime_data
     async_remove_entities(

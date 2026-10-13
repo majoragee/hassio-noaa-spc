@@ -15,7 +15,7 @@ from .location import LocationCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-HUB_PLATFORMS = [Platform.SENSOR]
+HUB_PLATFORMS = [Platform.IMAGE, Platform.SENSOR]
 LOCATION_PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 
