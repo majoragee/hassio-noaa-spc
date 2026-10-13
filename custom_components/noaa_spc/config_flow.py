@@ -5,20 +5,39 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_LATITUDE, CONF_LOCATION, CONF_LONGITUDE, CONF_NAME
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
     LocationSelector,
     LocationSelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
 )
 
 from .api.products import in_conus
 from .const import (
+    ALL_GROUPS,
+    CONF_ALERT_INTERVAL,
     CONF_ENTRY_TYPE,
+    CONF_GROUPS,
     CONF_MODE,
+    CONF_MOVE_THRESHOLD_KM,
+    CONF_OUTLOOK_INTERVAL,
     CONF_TRACKED_ENTITY,
+    DEFAULT_ALERT_INTERVAL,
+    DEFAULT_MOVE_THRESHOLD_KM,
+    DEFAULT_OUTLOOK_INTERVAL,
     DOMAIN,
     ENTRY_TYPE_HUB,
     ENTRY_TYPE_LOCATION,
@@ -37,6 +56,14 @@ class SpcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._pending: tuple[str, dict[str, Any]] | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow for the entry type."""
+        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_HUB:
+            return HubOptionsFlow()
+        return LocationOptionsFlow()
 
     async def async_step_import(self, import_data: dict[str, Any]) -> ConfigFlowResult:
         """Create the single hub entry."""
@@ -129,3 +156,109 @@ class SpcConfigFlow(ConfigFlow, domain=DOMAIN):
         assert self._pending is not None
         title, data = self._pending
         return self.async_create_entry(title=title, data=data)
+
+
+def _minutes(minimum: int, maximum: int) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=1,
+            mode=NumberSelectorMode.BOX,
+            unit_of_measurement="min",
+        )
+    )
+
+
+class HubOptionsFlow(OptionsFlow):
+    """Options for the hub entry (polling intervals)."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start the hub options step."""
+        return await self.async_step_hub()
+
+    async def async_step_hub(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit polling intervals."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        options = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_OUTLOOK_INTERVAL,
+                    default=options.get(
+                        CONF_OUTLOOK_INTERVAL, DEFAULT_OUTLOOK_INTERVAL
+                    ),
+                ): _minutes(2, 60),
+                vol.Required(
+                    CONF_ALERT_INTERVAL,
+                    default=options.get(CONF_ALERT_INTERVAL, DEFAULT_ALERT_INTERVAL),
+                ): _minutes(1, 30),
+            }
+        )
+        return self.async_show_form(step_id="hub", data_schema=schema)
+
+
+class LocationOptionsFlow(OptionsFlow):
+    """Options for a location entry."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start the location options step."""
+        return await self.async_step_location()
+
+    async def async_step_location(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit location, tracking and enabled groups."""
+        conf = {**self.config_entry.data, **self.config_entry.options}
+        if user_input is not None:
+            data = dict(user_input)
+            if CONF_LOCATION in data:
+                location = data.pop(CONF_LOCATION)
+                data[CONF_LATITUDE] = float(location[CONF_LATITUDE])
+                data[CONF_LONGITUDE] = float(location[CONF_LONGITUDE])
+            return self.async_create_entry(data=data)
+
+        fields: dict[Any, Any] = {}
+        if conf[CONF_MODE] == MODE_FIXED:
+            fields[
+                vol.Required(
+                    CONF_LOCATION,
+                    default={
+                        CONF_LATITUDE: conf[CONF_LATITUDE],
+                        CONF_LONGITUDE: conf[CONF_LONGITUDE],
+                    },
+                )
+            ] = LocationSelector(LocationSelectorConfig(radius=False))
+        else:
+            fields[
+                vol.Required(CONF_TRACKED_ENTITY, default=conf[CONF_TRACKED_ENTITY])
+            ] = EntitySelector(EntitySelectorConfig(domain=TRACKABLE_DOMAINS))
+            fields[
+                vol.Required(
+                    CONF_MOVE_THRESHOLD_KM,
+                    default=conf.get(CONF_MOVE_THRESHOLD_KM, DEFAULT_MOVE_THRESHOLD_KM),
+                )
+            ] = NumberSelector(
+                NumberSelectorConfig(
+                    min=0.1,
+                    max=50,
+                    step=0.1,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement="km",
+                )
+            )
+        fields[vol.Required(CONF_GROUPS, default=conf.get(CONF_GROUPS, ALL_GROUPS))] = (
+            SelectSelector(
+                SelectSelectorConfig(
+                    options=ALL_GROUPS, multiple=True, translation_key="groups"
+                )
+            )
+        )
+        return self.async_show_form(step_id="location", data_schema=vol.Schema(fields))
