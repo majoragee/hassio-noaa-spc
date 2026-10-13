@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -73,9 +74,10 @@ def position_from_state(state: State | None) -> Position | None:
     if lat is None or lon is None:
         return None
     try:
-        return float(lat), float(lon)
+        position = float(lat), float(lon)
     except (TypeError, ValueError):
         return None
+    return position if all(math.isfinite(v) for v in position) else None
 
 
 class LocationCoordinator(DataUpdateCoordinator[LocationData]):

@@ -1,4 +1,4 @@
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import async_capture_events
 
@@ -10,7 +10,10 @@ from custom_components.noaa_spc.const import (
     EVENT_RISK_CHANGED,
     GROUP_CATEGORICAL,
 )
-from custom_components.noaa_spc.location import LocationCoordinator
+from custom_components.noaa_spc.location import (
+    LocationCoordinator,
+    position_from_state,
+)
 from tests.factories import (
     FakeHub,
     alert_bundle,
@@ -228,3 +231,14 @@ async def test_manual_refresh_reevaluates_without_events(
     assert coordinator.data.outlook.categorical[1] is RiskLevel.SLGT
     assert risk_events == []
     assert "not implemented" not in caplog.text
+
+
+def test_position_from_state_rejects_non_finite_and_missing() -> None:
+    def state(lat, lon) -> State:
+        return State("device_tracker.x", "home", {"latitude": lat, "longitude": lon})
+
+    assert position_from_state(state(35.0, -97.0)) == (35.0, -97.0)
+    assert position_from_state(state(float("nan"), -97.0)) is None
+    assert position_from_state(state(35.0, float("inf"))) is None
+    assert position_from_state(state("x", -97.0)) is None
+    assert position_from_state(None) is None

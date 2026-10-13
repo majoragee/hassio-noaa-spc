@@ -244,8 +244,7 @@ LICENSE              # MIT, © majoragee
 ```
 
 Dependencies: none beyond Home Assistant (aiohttp session from HA,
-`xml.etree` for RSS, custom geometry). Minimum HA version 2025.1, to be
-confirmed against APIs used.
+`xml.etree` for RSS, custom geometry). Minimum HA version 2026.2.
 
 ## 9. Blueprint
 

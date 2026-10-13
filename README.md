@@ -31,7 +31,7 @@ Settings -> Devices & services -> Add integration -> "NOAA Storm Prediction Cent
 
 ## Entities
 
-Examples use a location titled "Home". Entity ids are derived from the device name "SPC - Home".
+Examples use a location titled "Home". Entity ids are derived from the device name "SPC – Home".
 
 ### Location entities
 
@@ -72,7 +72,7 @@ Fired when a location's categorical risk for a day changes. The first evaluation
 
 ### `noaa_spc_md_issued`
 
-Fired when a new mesoscale discussion first covers a location.
+Fired when a new mesoscale discussion first covers a location. Disabling the "alerts" (mesoscale discussions) group for a location also stops this event for that location. `noaa_spc_risk_changed` fires regardless of which groups are enabled.
 
 | Field | Description |
 | --- | --- |

@@ -101,3 +101,14 @@ def test_feed_with_no_mds() -> None:
 def test_feed_malformed_xml_rejected() -> None:
     with pytest.raises(MdParseError):
         parse_md_feed(b"<rss><channel>")
+
+
+def test_real_no_mds_placeholder_item_yields_empty() -> None:
+    feed = (
+        '<?xml version="1.0"?><rss version="2.0"><channel><title>SPC MDs</title>'
+        "<item><title>SPC - No MDs are in effect as of 1805 UTC</title>"
+        "<link>https://www.spc.noaa.gov/products/md/</link>"
+        "<description>No MDs are in effect</description></item>"
+        "</channel></rss>"
+    )
+    assert parse_md_feed(feed) == []

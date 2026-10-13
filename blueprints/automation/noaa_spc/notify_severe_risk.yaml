@@ -10,6 +10,7 @@ blueprint:
   input:
     location:
       name: SPC location
+      description: Choose a location entry, not the NOAA SPC hub.
       selector:
         config_entry:
           integration: noaa_spc
@@ -78,7 +79,7 @@ variables:
     {% if trigger.id == 'risk' %}
     Day {{ e.day }} SPC risk for {{ e.location_name }} upgraded to {{ e.new }} (was {{ e.old }}).
     {% else %}
-    SPC Mesoscale Discussion #{{ e.number }} covers {{ e.location_name }}: {{ e.concerning }}{% if e.watch_probability is not none %} (watch probability {{ e.watch_probability }}%){% endif %}.
+    SPC Mesoscale Discussion #{{ e.number }} covers {{ e.location_name }}: {{ e.concerning if e.concerning is not none else 'n/a' }}{% if e.watch_probability is not none %} (watch probability {{ e.watch_probability }}%){% endif %}.
     {% endif %}
 
 conditions:

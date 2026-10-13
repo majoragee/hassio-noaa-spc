@@ -6,7 +6,7 @@
 
 **Architecture:** A Home-Assistant-free `api/` package fetches (conditional GET) and parses SPC GeoJSON/text/RSS into frozen dataclasses, and evaluates point containment. A reference-counted hub singleton owns two `DataUpdateCoordinator`s (outlooks, alerts) shared by all config entries; one hub config entry hosts national entities, and each location config entry has a `LocationCoordinator` that re-evaluates on hub updates or tracker movement and fires events.
 
-**Tech Stack:** Python 3.13+, Home Assistant ≥ 2025.1 APIs, aiohttp (HA's session), stdlib `xml.etree`/`json`/`re`, pytest + `pytest-homeassistant-custom-component`, `aioresponses` (API tests), ruff.
+**Tech Stack:** Python 3.13+, Home Assistant ≥ 2026.2 APIs, aiohttp (HA's session), stdlib `xml.etree`/`json`/`re`, pytest + `pytest-homeassistant-custom-component`, `aioresponses` (API tests), ruff.
 
 **Spec:** `docs/superpowers/specs/2026-10-13-noaa-spc-integration-design.md`
 
@@ -15,7 +15,7 @@
 - Integration domain `noaa_spc`; files under `custom_components/noaa_spc/`.
 - No runtime dependencies beyond Home Assistant (`manifest.json` `"requirements": []`).
 - `custom_components/noaa_spc/api/` must not import `homeassistant`.
-- Declared minimum Home Assistant version: `2025.1.0` (in `hacs.json`).
+- Declared minimum Home Assistant version: `2026.2.0` (in `hacs.json`).
 - Every HTTP request sends `User-Agent: hassio-noaa-spc/0.1.0 (https://github.com/majoragee/hassio-noaa-spc)`.
 - Outlook polling default 5 min, watch/MD polling default 2 min.
 - Outlook-derived entities unavailable after 3 h without a successful fetch of their source; MD entities and the national watch count after 15 min.
@@ -160,7 +160,7 @@ __pycache__/
 ```json
 {
   "name": "NOAA Storm Prediction Center",
-  "homeassistant": "2025.1.0",
+  "homeassistant": "2026.2.0",
   "render_readme": true
 }
 ```
