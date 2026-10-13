@@ -118,7 +118,7 @@ Device: "SPC – <location name>".
 | `day{4..8}_severe` | `0`, `15`, `30` % | `predictability_too_low` (bool) |
 | `max_risk_next_3_days` | highest categorical across Days 1–3 | `day` of peak |
 
-Staleness is conveyed by entity unavailability (see §6), not by an age attribute: a changing age would force a state write per entity on every hub tick.
+Staleness is conveyed by entity unavailability (see §7), not by an age attribute: a changing age would force a state write per entity on every hub tick.
 
 Outlook layers past their `expire` time are treated as "not current": they contribute no risk, and their issued/valid/expire/forecaster are reported as null.
 
