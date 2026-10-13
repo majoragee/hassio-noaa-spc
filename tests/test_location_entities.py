@@ -1,12 +1,13 @@
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    async_capture_events,
     async_fire_time_changed,
 )
 
@@ -49,9 +50,13 @@ async def test_setup_creates_hub_entry_and_location_entities(
     assert day1.attributes["label"] == "Slight Risk"
     assert day1.attributes["forecaster"] == "Smith"
     assert day1.attributes["issued"] == "2026-10-13T12:52:00+00:00"
-    assert day1.attributes["data_age"] is not None
+    assert "data_age" not in day1.attributes
     assert hass.states.get("sensor.spc_home_day_2_risk").state == "MRGL"
-    assert hass.states.get("sensor.spc_home_day_3_risk").state == "none"
+    day3 = hass.states.get("sensor.spc_home_day_3_risk")
+    assert day3.state == "none"
+    # Day 3 layer is an expired "no areas" file: stale metadata is not reported.
+    for attr in ("issued", "valid", "expire", "forecaster"):
+        assert day3.attributes[attr] is None
 
     peak = hass.states.get("sensor.spc_home_max_risk_next_3_days")
     assert (peak.state, peak.attributes["day"]) == ("SLGT", 1)
@@ -163,3 +168,20 @@ async def test_failed_setup_releases_hub_reference(
     assert bad.state is ConfigEntryState.SETUP_ERROR
     assert get_hub(hass) is hub
     assert hub.users == users_before
+
+
+async def test_unchanged_alert_tick_writes_no_state(
+    hass: HomeAssistant, mock_api, freezer
+) -> None:
+    await setup_entry(hass, fixed_entry())
+    events = async_capture_events(hass, EVENT_STATE_CHANGED)
+
+    freezer.tick(timedelta(minutes=2))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    await get_hub(hass).alerts.async_refresh()
+    await hass.async_block_till_done()
+
+    assert [
+        e for e in events if e.data["entity_id"] == "sensor.spc_home_day_1_risk"
+    ] == []

@@ -1,10 +1,10 @@
+from datetime import UTC, datetime
+
 from custom_components.noaa_spc.api.evaluate import (
     OutlookRisk,
     evaluate_alerts,
     evaluate_outlooks,
 )
-from datetime import UTC, datetime
-
 from custom_components.noaa_spc.api.models import RiskLevel
 from custom_components.noaa_spc.api.outlooks import parse_layer
 from tests.factories import make_md, outlook_bundle, risk_layers

@@ -37,20 +37,20 @@ Examples use a location titled "Home". Entity ids are derived from the device na
 
 | Entity | State | Key attributes |
 | --- | --- | --- |
-| `sensor.spc_home_day_1_risk`, `_day_2_risk`, `_day_3_risk` | Enum: `none`, `TSTM`, `MRGL`, `SLGT`, `ENH`, `MDT`, `HIGH` | `level` (0-6), `label`, `issued`, `valid`, `expire`, `forecaster`, `data_age` |
+| `sensor.spc_home_day_1_risk`, `_day_2_risk`, `_day_3_risk` | Enum: `none`, `TSTM`, `MRGL`, `SLGT`, `ENH`, `MDT`, `HIGH` | `level` (0-6), `label`, `issued`, `valid`, `expire`, `forecaster` |
 | `sensor.spc_home_max_risk_next_3_days` | Highest categorical risk over Days 1-3 | `level`, `day` |
-| `sensor.spc_home_day_1_tornado_probability`, `_wind_`, `_hail_`; same for Day 2 | Percent | `significant`, `issued`, `valid`, `expire`, `forecaster`, `data_age` |
+| `sensor.spc_home_day_1_tornado_probability`, `_wind_`, `_hail_`; same for Day 2 | Percent | `significant`, `issued`, `valid`, `expire`, `forecaster` |
 | `sensor.spc_home_day_3_severe_probability` | Percent | `significant`, plus the fields above |
 | `sensor.spc_home_day_4_severe_probability` ... `day_8_` | Percent | `predictability_too_low`, plus the fields above |
-| `binary_sensor.spc_home_mesoscale_discussion` | On while an MD covers the location | `number`, `areas_affected`, `concerning`, `watch_probability`, `summary`, `url` (first MD), `items` (all), `data_age` |
+| `binary_sensor.spc_home_mesoscale_discussion` | On while an MD covers the location | `number`, `areas_affected`, `concerning`, `watch_probability`, `summary`, `url` (first MD), `items` (all) |
 
 ### Hub entities
 
 | Entity | State | Key attributes |
 | --- | --- | --- |
-| `sensor.noaa_spc_day_1_discussion`, `_day_2_`, `_day_3_`, `_day_4_8_discussion` | Timestamp the outlook was issued | `valid`, `text`, `summary`, `forecaster`, `data_age` |
-| `sensor.noaa_spc_active_watches` | Number of active watches nationwide | `tornado`, `severe_thunderstorm`, `pds`, `items` (number, type, pds, url), `data_age` |
-| `sensor.noaa_spc_active_mesoscale_discussions` | Number of active MDs nationwide | `items`, `data_age` |
+| `sensor.noaa_spc_day_1_discussion`, `_day_2_`, `_day_3_`, `_day_4_8_discussion` | Timestamp the outlook was issued | `valid`, `text`, `summary`, `forecaster` |
+| `sensor.noaa_spc_active_watches` | Number of active watches nationwide | `tornado`, `severe_thunderstorm`, `pds`, `items` (number, type, pds, url) |
+| `sensor.noaa_spc_active_mesoscale_discussions` | Number of active MDs nationwide | `items` |
 | `image.noaa_spc_day_1_outlook`, `_day_2_outlook`, `_day_3_outlook`, `_day_4_8_outlook` | Outlook map | enabled by default |
 | `image.noaa_spc_day_1_tornado_outlook`, `_wind_`, `_hail_`; same for Day 2 | Probabilistic hazard maps | disabled by default |
 

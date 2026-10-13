@@ -24,12 +24,6 @@ def is_fresh(timestamp: datetime | None, max_age: timedelta) -> bool:
     return timestamp is not None and dt_util.utcnow() - timestamp <= max_age
 
 
-def data_age(timestamp: datetime | None) -> int | None:
-    if timestamp is None:
-        return None
-    return int((dt_util.utcnow() - timestamp).total_seconds())
-
-
 def watch_attributes(watch: Watch) -> dict[str, Any]:
     return {
         "number": watch.number,

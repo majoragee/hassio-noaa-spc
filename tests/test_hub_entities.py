@@ -36,6 +36,7 @@ async def test_hub_sensors(hass: HomeAssistant, mock_api) -> None:
     day48 = hass.states.get("sensor.noaa_spc_day_4_8_discussion")
     assert day48.state != "unavailable"
     assert day48.attributes["summary"] == "Storms today."
+    assert "data_age" not in day1.attributes
     # day2 text was never fetched -> unavailable
     assert hass.states.get("sensor.noaa_spc_day_2_discussion").state == "unavailable"
 
@@ -70,3 +71,19 @@ async def test_outlook_images(hass: HomeAssistant, mock_api, hass_client) -> Non
     assert hazard is not None
     assert hazard.disabled_by is er.RegistryEntryDisabler.INTEGRATION
     assert hass.states.get("image.noaa_spc_day_2_outlook").state == "unavailable"
+
+
+async def test_discussion_of_expired_layer_has_no_issue_time(
+    hass: HomeAssistant, mock_api
+) -> None:
+    # risk_layers() day3_cat is an expired "no areas" file.
+    mock_api.outlooks = outlook_bundle(
+        risk_layers(), texts={"day1": TEXT, "day3": TEXT}
+    )
+    await setup_entry(hass, fixed_entry())
+
+    day3 = hass.states.get("sensor.noaa_spc_day_3_discussion")
+    assert day3.state == "unknown"
+    assert day3.attributes["valid"] is None
+    assert day3.attributes["summary"] == "Storms today."
+    assert hass.states.get("sensor.noaa_spc_day_1_discussion").state != "unknown"

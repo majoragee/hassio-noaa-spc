@@ -14,7 +14,6 @@ from .const import ALERT_STALE, GROUP_ALERTS
 from .entity import (
     SpcLocationEntity,
     async_remove_entities,
-    data_age,
     is_fresh,
     md_attributes,
 )
@@ -54,7 +53,6 @@ class MesoscaleDiscussionBinarySensor(SpcLocationEntity, BinarySensorEntity):
         return {
             **(items[0] if items else {}),
             "items": items,
-            "data_age": data_age(self.coordinator.data.mds_updated),
         }
 
 

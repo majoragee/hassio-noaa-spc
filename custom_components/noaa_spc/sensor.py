@@ -17,8 +17,10 @@ from homeassistant.const import PERCENTAGE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
 from .api.models import RISK_STATES
+from .api.outlooks import is_current
 from .const import (
     ALERT_STALE,
     GROUP_CATEGORICAL,
@@ -30,7 +32,6 @@ from .entity import (
     SpcHubEntity,
     SpcLocationEntity,
     async_remove_entities,
-    data_age,
     is_fresh,
     md_attributes,
     watch_attributes,
@@ -51,6 +52,9 @@ def _layer_attrs(data: LocationData, layer_key: str) -> dict[str, Any]:
     layer = data.layers.get(layer_key)
     if layer is None:
         return {}
+    if not is_current(layer, dt_util.utcnow()):
+        # SPC serves months-old files for empty outlooks; don't report them.
+        return dict.fromkeys(("issued", "valid", "expire", "forecaster"))
     return {
         "issued": layer.issued.isoformat() if layer.issued else None,
         "valid": layer.valid.isoformat() if layer.valid else None,
@@ -200,11 +204,7 @@ class LocationSensor(SpcLocationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self.coordinator.data
-        return {
-            **self.entity_description.attrs_fn(data),
-            "data_age": data_age(data.updated.get(self.entity_description.source)),
-        }
+        return self.entity_description.attrs_fn(self.coordinator.data)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -219,14 +219,20 @@ class HubSensorDescription(SensorEntityDescription):
 def _discussion(text_key: str, layer_key: str, name: str) -> HubSensorDescription:
     def value(bundle: Any) -> datetime | None:
         layer = bundle.layers.get(layer_key)
-        return layer.issued if layer else None
+        if layer is None or not is_current(layer, dt_util.utcnow()):
+            return None
+        return layer.issued
 
     def attrs(bundle: Any) -> dict[str, Any]:
         text = bundle.texts.get(text_key)
         if text is None:
             return {}
         layer = bundle.layers.get(layer_key)
-        valid = layer.valid if layer else None
+        valid = (
+            layer.valid
+            if layer is not None and is_current(layer, dt_util.utcnow())
+            else None
+        )
         return {
             "valid": valid.isoformat() if valid else None,
             "text": text.text,
@@ -306,11 +312,7 @@ class HubSensor(SpcHubEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self.coordinator.data
-        return {
-            **self.entity_description.attrs_fn(data),
-            "data_age": data_age(self.entity_description.updated_fn(data)),
-        }
+        return self.entity_description.attrs_fn(self.coordinator.data)
 
 
 async def async_setup_entry(

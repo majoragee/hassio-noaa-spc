@@ -1,9 +1,8 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
-from datetime import UTC, datetime
 
 from custom_components.noaa_spc.api.evaluate import evaluate_outlooks
 from custom_components.noaa_spc.api.geometry import point_in_polygon
