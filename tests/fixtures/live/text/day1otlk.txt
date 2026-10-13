@@ -1,0 +1,73 @@
+ZCZC SPCSWODY1 ALL
+ACUS01 KWNS 131629
+SPC AC 131629
+
+Day 1 Convective Outlook  
+NWS Storm Prediction Center Norman OK
+1129 AM CDT Tue Oct 13 2026
+
+Valid 131630Z - 141200Z
+
+...THERE IS A SLIGHT RISK OF SEVERE THUNDERSTORMS FROM PARTS OF
+NORTHWEST MISSOURI/KANSAS INTO THE SOUTHERN HIGH PLAINS...
+
+...SUMMARY...
+Widely scattered severe storms capable of large hail, severe gusts,
+and possibly a tornado are expected over portions of the central and
+southern Plains into the Lower Missouri Valley this afternoon into
+tonight.  More isolated severe weather may occur from southwest
+Texas into the mid Mississippi Valley, and in parts of New York.
+
+...Southern High Plains into KS and the mid MS Valley...
+Regional 12 UTC raob data over the southern Great Plains showed a
+very moist boundary layer (15-17 g/kg lowest 100-mb mean mixing
+ratios at Norman and Lamont, OK and Midland and Fort Worth, TX)
+streaming northward.  Late morning surface mesoanalysis places a
+front extending southwestward from a surface low over northern Lower
+MI through the mid MS/lower MO Valleys and into southeast CO.  The
+frontal zone is forecast to gradually shift south, primarily after
+dark.  
+
+Ample heating via clear skies through mid afternoon will contribute
+to moderate buoyancy (2000-2500 J/kg MLCAPE) developing along and
+south of the aforementioned front, westward to a triple point, and
+southward into west TX east of a dryline.  The erosion of convective
+inhibition will likely lead to initial widely scattered storm
+development over central KS per recent CAM data by mid-late
+afternoon.  Strong mid to high-level flow will support supercells
+early in the convective life cycle with some of the stronger
+thunderstorms.  Storm coverage is forecast to increase through the
+early evening from northwest OK and KS into the lower MO Valley.  
+
+Will maintain previous categorical risk with minimal change. 
+However, have enlarged the level-1 wind intensity and introduced a
+level-1 hail intensity to account for organized storm modes and a
+risk for hail 1.5 to 2.5 inches in diameter from the eastern TX
+Panhandle into central KS.  The overall tornado risk is uncertain
+and will be limited to a certain extent by modest low-level shear
+despite the supercell mode and a very moist boundary layer.  A few
+small clusters will likely evolve during the evening with a mix of
+supercellular and multicells capable of severe gusts 60-80 mph.  The
+severe threat should become more isolated with time given increasing
+nocturnal stabilization and widespread storm interactions.
+
+...Parts of western/central NY...
+A low-amplitude midlevel shortwave trough will continue to move
+quickly eastward through eastern Ontario through the Northeast
+today.  An attendant surface low will eastward just ahead of the
+parent shortwave.  Increasing low-level moisture and afternoon
+temperatures in the upper 70s will promote modest buoyancy, although
+clouds/precipitation and relatively warm low to mid-level
+temperatures result in some uncertainty regarding airmass
+destabilization.
+
+Increasing deep-layer westerly flow (particularly around 850 mb)
+amid low-level southwesterlies will result in notably curved
+low-level hodographs.  As a result, any sustained surface-based
+storms could organize, supporting a threat for localized wind damage
+and possibly a tornado.  Modest buoyancy is expected to 
+limit the overall magnitude and coverage of the severe potential.
+
+..Smith/Hart.. 10/13/2026
+
+$$

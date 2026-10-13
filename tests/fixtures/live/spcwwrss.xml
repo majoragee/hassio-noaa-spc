@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> 
+  <channel>
+    <title>SPC Tornado/Severe Thunderstorm Watches</title>
+    <link>https://www.spc.noaa.gov/</link>
+    <description>Storm Prediction Center</description>
+    <language>en-us</language>
+    <copyright>None</copyright>
+    <managingEditor>spc.feedback@noaa.gov (spc.feedback@noaa.gov)</managingEditor>
+    <webMaster>spc.feedback@noaa.gov (spc.feedback@noaa.gov)</webMaster>
+    <pubDate>Sun, 11 Oct 2026 22:31:02 +0000</pubDate>
+    <lastBuildDate>Sun, 11 Oct 2026 22:31:02 +0000</lastBuildDate>
+    <rating>general</rating>
+    <docs>http://validator.w3.org/feed/rss2.html</docs>
+    <ttl>1</ttl>
+    <atom:link href="https://www.spc.noaa.gov/products/spcwwrss.xml" rel="self" type="application/rss+xml" />
+
+    <image>
+      <url>http://weather.gov/images/xml_logo.gif</url>
+      <title>SPC Tornado/Severe Thunderstorm Watches</title>
+      <link>https://www.spc.noaa.gov/</link>
+    </image> 
+
+    <item>
+      <link>https://www.spc.noaa.gov/products/watch/</link>
+      <title>SPC - No watches are valid as of Sun Oct 11 22:31:02 UTC 2026</title>
+      <description>No watches are valid as of Sun Oct 11 22:31:02 UTC 2026.</description>
+      <pubDate>Sun, 11 Oct 2026 22:30:05 +0000</pubDate>
+      <guid isPermaLink="false">https://www.spc.noaa.gov/products/watch/20261011</guid>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,72 @@
+ZCZC SPCSWODY2 ALL
+ACUS02 KWNS 131730
+SPC AC 131730
+
+Day 2 Convective Outlook  
+NWS Storm Prediction Center Norman OK
+1230 PM CDT Tue Oct 13 2026
+
+Valid 141200Z - 151200Z
+
+...THERE IS A SLIGHT RISK OF SEVERE THUNDERSTORMS FROM WESTERN NORTH
+TEXAS...ACROSS OKLAHOMA...TO THE WESTERN OZARK PLATEAU...
+
+...SUMMARY...
+Severe thunderstorms capable of mainly damaging wind gusts, isolated
+hail and a tornado or two are possible across portions of the
+southern Plains into the Ozark Plateau, and in the parts of the
+upper Ohio Valley and Mid-Atlantic Wednesday afternoon and evening.
+
+...Southern Plains to the Ozarks...
+An upper low, initially over the Four Corners, is forecast move
+eastward over the High Plains while southwesterly flow aloft
+increases. A series of convectively enhanced vorticity maxima will
+move along a cold front through the Mid-Atlantic, OH and mid-MS
+Valleys, and into portions of the southern Plains. Western portions
+of the front, modified by convection, may eventually stall and
+perhaps retreat north Wed night in response to falling pressures
+with a deepening lee low over eastern CO and the central Plains.
+
+Scattered to numerous thunderstorms, in one or more clusters, are
+likely to be ongoing from the mid MS valley into southern/eastern KS
+and central OK at 12z Wed. The cold front will likely be reinforced
+by the convection with the morning outflow potentially causing it to
+sag slowly across central OK and the western Ozarks Plateau through
+the day. To the south of the boundary, the air mass should remain
+very moist (70s F dewpoints), with modest heating contributing to
+weak to moderate diurnal destabilization. Large-scale ascent will
+gradually increase as the upper low approaches, aiding in
+thunderstorm redevelopment along the dryline across the TX
+Panhandle/western OK, and within the broader warm sector by early
+afternoon. Increasing deep-layer shear (40-50 kt) will be supportive
+of a mix of organized supercells and lines/clusters. Damaging winds
+are the most likely threat given modest low/mid-level lapse rates
+and a mixed convective mode. However, isolated hail and perhaps a
+tornado, are also possible with any more persistent supercells.
+
+As the main upper low moves eastward into the evening/overnight, the
+stalled surface front may gradually return northward as a warm front
+across OK and KS. The air mass will remain very moist, aided by
+further moisture advection associated with a developing 30-40 kt
+low-level jet. As low-level warm air advection increases near the
+boundary, storm redevelopment is possible through the
+evening/overnight. Expanding low-level hodographs (ESRH 150-200
+m2/s2) and the very moist PBL could support a tornado or two with
+any supercells or linear clusters able to develop near the surface
+low and warm front into early Thursday.
+
+...OH Valley to the Mid Atlantic...
+Daytime heating combined with boundary-layer dewpoints in the mid
+60s to low 70s F is expected to contribute to pockets of moderate
+instability with MLCAPE near 1000 J/kg by mid-late afternoon ahead
+of the cold front. Thunderstorms ongoing over the mid MS valley, and
+additional development from the aforementioned vorticity maxima, are
+expected to increase in areal coverage along the front through the
+afternoon. Steepening low-level lapse rates coupled with
+strengthening west-southwesterly winds with height (yielding up to
+35-40 kt of deep-layer shear) appear supportive of isolated damaging
+wind gusts into evening.
+
+..Lyons.. 10/13/2026
+
+$$
