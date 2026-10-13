@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -76,6 +77,8 @@ class SpcHub:
         self.outlooks = OutlookCoordinator(hass, self.api)
         self.alerts = AlertCoordinator(hass, self.api)
         self.users = 0
+        self._hass = hass
+        self._first_refresh: asyncio.Task[None] | None = None
 
     def apply_options(self, options: Mapping[str, Any]) -> None:
         """Apply polling intervals from entry options."""
@@ -87,15 +90,29 @@ class SpcHub:
         )
 
     async def async_start(self) -> None:
-        """Register shutdown hooks and perform the first refresh."""
+        """Register shutdown hooks and schedule the first refresh.
+
+        The refresh runs in the background so an SPC outage cannot block entry
+        setup or Home Assistant startup; entities stay unavailable until data
+        arrives.
+        """
         # Not tied to a config entry, so stop polling explicitly on HA shutdown.
         await self.outlooks.async_register_shutdown()
         await self.alerts.async_register_shutdown()
+        self._first_refresh = self._hass.async_create_background_task(
+            self._async_first_refresh(), name=f"{DOMAIN} first refresh"
+        )
+
+    async def _async_first_refresh(self) -> None:
         await self.outlooks.async_refresh()
         await self.alerts.async_refresh()
 
     async def async_stop(self) -> None:
-        """Stop both coordinators."""
+        """Cancel the first refresh if pending and stop both coordinators."""
+        if self._first_refresh is not None and not self._first_refresh.done():
+            self._first_refresh.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._first_refresh
         await self.outlooks.async_shutdown()
         await self.alerts.async_shutdown()
 

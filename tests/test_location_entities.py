@@ -1,4 +1,6 @@
+import asyncio
 from datetime import timedelta
+from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE
@@ -12,6 +14,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.noaa_spc.api.spc import SpcApi
 from custom_components.noaa_spc.const import (
     CONF_GROUPS,
     DOMAIN,
@@ -205,3 +208,22 @@ async def test_update_entity_service_succeeds(
     assert hass.states.get("sensor.spc_home_day_1_risk").state == "SLGT"
     assert "not implemented" not in caplog.text
     assert "Error" not in caplog.text
+
+
+async def test_setup_and_unload_do_not_wait_for_hung_first_refresh(
+    hass: HomeAssistant, mock_api
+) -> None:
+    never = asyncio.Event()
+
+    async def hang(self, previous):
+        await never.wait()
+
+    entry = fixed_entry()
+    with patch.object(SpcApi, "fetch_outlooks", hang):
+        await asyncio.wait_for(setup_entry(hass, entry), timeout=5)
+        assert entry.state is ConfigEntryState.LOADED
+        assert hass.states.get("sensor.spc_home_day_1_risk").state == STATE_UNAVAILABLE
+        for config_entry in hass.config_entries.async_entries(DOMAIN):
+            assert await hass.config_entries.async_unload(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert get_hub(hass) is None
