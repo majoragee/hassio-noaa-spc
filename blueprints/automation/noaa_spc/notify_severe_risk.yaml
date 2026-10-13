@@ -1,0 +1,94 @@
+blueprint:
+  name: "NOAA SPC: notify on severe weather"
+  description: >-
+    Runs your notification actions when the SPC categorical risk for a location
+    rises to a chosen level, or when an SPC mesoscale discussion newly covers it.
+    Use the `message` variable in your actions, for example
+    `message: "{{ message }}"`.
+  domain: automation
+  source_url: https://github.com/majoragee/hassio-noaa-spc/blob/main/blueprints/automation/noaa_spc/notify_severe_risk.yaml
+  input:
+    location:
+      name: SPC location
+      selector:
+        config_entry:
+          integration: noaa_spc
+    threshold:
+      name: Minimum categorical risk
+      default: "4"
+      selector:
+        select:
+          options:
+            - label: "TSTM – General thunderstorms"
+              value: "1"
+            - label: "MRGL – Marginal (1/5)"
+              value: "2"
+            - label: "SLGT – Slight (2/5)"
+              value: "3"
+            - label: "ENH – Enhanced (3/5)"
+              value: "4"
+            - label: "MDT – Moderate (4/5)"
+              value: "5"
+            - label: "HIGH – High (5/5)"
+              value: "6"
+    days:
+      name: Outlook days
+      default: ["1", "2", "3"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Day 1
+              value: "1"
+            - label: Day 2
+              value: "2"
+            - label: Day 3
+              value: "3"
+    include_mds:
+      name: Notify on new mesoscale discussions
+      default: true
+      selector:
+        boolean: {}
+    notify:
+      name: Notification actions
+      description: Actions to run. The text is available as `{{ message }}`.
+      selector:
+        action: {}
+
+mode: queued
+
+triggers:
+  - trigger: event
+    event_type: noaa_spc_risk_changed
+    event_data:
+      config_entry_id: !input location
+    id: risk
+  - trigger: event
+    event_type: noaa_spc_md_issued
+    event_data:
+      config_entry_id: !input location
+    id: md
+
+variables:
+  threshold: !input threshold
+  days: !input days
+  include_mds: !input include_mds
+  message: >-
+    {% set e = trigger.event.data %}
+    {% if trigger.id == 'risk' %}
+    Day {{ e.day }} SPC risk for {{ e.location_name }} upgraded to {{ e.new }} (was {{ e.old }}).
+    {% else %}
+    SPC Mesoscale Discussion #{{ e.number }} covers {{ e.location_name }}: {{ e.concerning }}{% if e.watch_probability is not none %} (watch probability {{ e.watch_probability }}%){% endif %}.
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% set e = trigger.event.data %}
+      {% if trigger.id == 'risk' %}
+      {{ e.upgraded and e.new_level >= (threshold | int) and (e.day | string) in days }}
+      {% else %}
+      {{ include_mds }}
+      {% endif %}
+
+actions: !input notify

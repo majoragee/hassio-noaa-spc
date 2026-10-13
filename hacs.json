@@ -1,5 +1,5 @@
 {
   "name": "NOAA Storm Prediction Center",
-  "homeassistant": "2025.1.0",
+  "homeassistant": "2026.2.0",
   "render_readme": true
 }
