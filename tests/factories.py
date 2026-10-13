@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.noaa_spc.api.models import (
     MesoscaleDiscussion,
@@ -14,6 +19,15 @@ from custom_components.noaa_spc.api.models import (
 from custom_components.noaa_spc.api.outlooks import parse_layer
 from custom_components.noaa_spc.api.products import watch_url
 from custom_components.noaa_spc.api.spc import AlertBundle, OutlookBundle
+from custom_components.noaa_spc.const import (
+    CONF_ENTRY_TYPE,
+    CONF_MODE,
+    CONF_TRACKED_ENTITY,
+    DOMAIN,
+    ENTRY_TYPE_LOCATION,
+    MODE_FIXED,
+    MODE_TRACKED,
+)
 from tests.helpers import HOME, collection, empty_feature, feature, square
 
 
@@ -83,3 +97,56 @@ def make_md(
         polygon=(ring,),
         url=f"https://www.spc.noaa.gov/products/md/md{number:04d}.html",
     )
+
+
+def fixed_entry(
+    lat: float = HOME[0],
+    lon: float = HOME[1],
+    title: str = "Home",
+    options: dict[str, Any] | None = None,
+) -> MockConfigEntry:
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=title,
+        unique_id=f"fixed_{lat:.3f}_{lon:.3f}",
+        data={
+            CONF_ENTRY_TYPE: ENTRY_TYPE_LOCATION,
+            CONF_MODE: MODE_FIXED,
+            "latitude": lat,
+            "longitude": lon,
+        },
+        options=options or {},
+    )
+
+
+def tracked_entry(
+    entity_id: str = "device_tracker.phone",
+    title: str = "Phone",
+    options: dict[str, Any] | None = None,
+) -> MockConfigEntry:
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=title,
+        unique_id=f"tracked_{entity_id}",
+        data={
+            CONF_ENTRY_TYPE: ENTRY_TYPE_LOCATION,
+            CONF_MODE: MODE_TRACKED,
+            CONF_TRACKED_ENTITY: entity_id,
+        },
+        options=options or {},
+    )
+
+
+class FakeHub:
+    """Hub stand-in: push bundles with push_outlooks / push_alerts."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        log = logging.getLogger("tests.fakehub")
+        self.outlooks = DataUpdateCoordinator(hass, log, config_entry=None, name="o")
+        self.alerts = DataUpdateCoordinator(hass, log, config_entry=None, name="a")
+
+    def push_outlooks(self, bundle: OutlookBundle) -> None:
+        self.outlooks.async_set_updated_data(bundle)
+
+    def push_alerts(self, bundle: AlertBundle) -> None:
+        self.alerts.async_set_updated_data(bundle)
