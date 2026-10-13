@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -7,6 +8,7 @@ from custom_components.noaa_spc.api.outlooks import (
     OutlookParseError,
     any_area_at,
     categorical_at,
+    is_current,
     parse_layer,
     parse_percent,
     probability_at,
@@ -24,7 +26,7 @@ def test_parse_layer_metadata_and_areas() -> None:
     layer = parse_layer(collection(feature("SLGT", square(*HOME), forecaster="Mosier")))
     assert layer.issued == datetime(2026, 10, 13, 12, 52, tzinfo=UTC)
     assert layer.valid == datetime(2026, 10, 13, 13, 0, tzinfo=UTC)
-    assert layer.expire == datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
+    assert layer.expire == datetime(2099, 1, 1, 12, 0, tzinfo=UTC)
     assert layer.forecaster == "Mosier"
     assert [a.label for a in layer.areas] == ["SLGT"]
     assert layer.predictability_too_low is False
@@ -130,3 +132,12 @@ def test_in_conus() -> None:
     assert in_conus(*HOME)
     assert not in_conus(51.5, -0.12)
     assert not in_conus(61.2, -149.9)  # Anchorage
+
+
+def test_is_current_by_expire() -> None:
+    layer = parse_layer(collection(feature("SLGT", square(*HOME))))
+    assert is_current(layer, datetime(2026, 10, 13, tzinfo=UTC))
+    assert not is_current(layer, datetime(2099, 1, 1, 12, 0, tzinfo=UTC))
+    assert not is_current(layer, datetime(2100, 1, 1, tzinfo=UTC))
+    undated = parse_layer(collection(feature("SLGT", square(*HOME))))
+    assert is_current(replace(undated, expire=None), datetime(2100, 1, 1, tzinfo=UTC))

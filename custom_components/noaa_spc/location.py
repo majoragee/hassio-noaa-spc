@@ -27,6 +27,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 from homeassistant.util.location import distance
 
 from .api.evaluate import AlertRisk, OutlookRisk, evaluate_alerts, evaluate_outlooks
@@ -183,7 +184,7 @@ class LocationCoordinator(DataUpdateCoordinator[LocationData]):
         bundle = self.hub.outlooks.data
         if bundle is None or self._position is None:
             return
-        risk = evaluate_outlooks(bundle.layers, *self._position)
+        risk = evaluate_outlooks(bundle.layers, *self._position, now=dt_util.utcnow())
         if self._levels is not None:
             for day, new in risk.categorical.items():
                 old = self._levels.get(day)

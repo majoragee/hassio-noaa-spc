@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from datetime import UTC, datetime
+
+from custom_components.noaa_spc.api.evaluate import evaluate_outlooks
 from custom_components.noaa_spc.api.geometry import point_in_polygon
 from custom_components.noaa_spc.api.mds import parse_md_page
 from custom_components.noaa_spc.api.models import RiskLevel
@@ -56,3 +59,18 @@ def test_risk_level_labels_in_live_categorical_layers_are_known() -> None:
     for path in (LIVE / "layers").glob("day*otlk_cat.lyr.geojson"):
         for area in parse_layer(json.loads(path.read_text())).areas:
             assert RiskLevel.from_label(area.label) is not None, area.label
+
+
+def test_stale_live_significant_layer_is_not_reported() -> None:
+    layers = {
+        "day3_prob": parse_layer(
+            json.loads((LIVE / "layers" / "day3otlk_prob.lyr.geojson").read_text())
+        ),
+        "day3_sigprob": parse_layer(
+            json.loads((LIVE / "layers" / "day3otlk_sigprob.lyr.geojson").read_text())
+        ),
+    }
+    now = datetime(2026, 10, 13, tzinfo=UTC)
+    risk = evaluate_outlooks(layers, 35.0, -101.0, now=now)
+    assert risk.probability["day3_prob"] == 0
+    assert risk.significant["day3_prob"] is False

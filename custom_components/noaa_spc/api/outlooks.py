@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from .geometry import point_in_any
@@ -78,6 +78,13 @@ def parse_layer(data: Any) -> OutlookLayer:
         forecaster=meta.get("FORECASTER") or None,
         predictability_too_low=predictability_too_low,
     )
+
+
+def is_current(layer: OutlookLayer, now: datetime | None = None) -> bool:
+    """False once the layer's expire time has passed (SPC serves stale files)."""
+    if layer.expire is None:
+        return True
+    return layer.expire > (now or datetime.now(UTC))
 
 
 def categorical_at(layer: OutlookLayer, lat: float, lon: float) -> RiskLevel:

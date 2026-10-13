@@ -6,7 +6,7 @@ from typing import Any
 
 ISSUE = "2026-10-13T12:52:00+00:00"
 VALID = "2026-10-13T13:00:00+00:00"
-EXPIRE = "2026-10-14T12:00:00+00:00"
+EXPIRE = "2099-01-01T12:00:00+00:00"
 HOME = (35.22, -97.44)  # Norman, OK
 FAR = (44.0, -110.0)  # Wyoming, outside every test area
 
