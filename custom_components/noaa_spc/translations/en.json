@@ -26,6 +26,9 @@
     }
   },
   "options": {
+    "error": {
+      "already_configured": "Another location already uses this position or entity."
+    },
     "step": {
       "hub": {
         "title": "SPC polling",

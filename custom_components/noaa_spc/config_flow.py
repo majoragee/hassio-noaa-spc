@@ -217,13 +217,32 @@ class LocationOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Edit location, tracking and enabled groups."""
         conf = {**self.config_entry.data, **self.config_entry.options}
+        errors: dict[str, str] = {}
         if user_input is not None:
             data = dict(user_input)
             if CONF_LOCATION in data:
                 location = data.pop(CONF_LOCATION)
                 data[CONF_LATITUDE] = float(location[CONF_LATITUDE])
                 data[CONF_LONGITUDE] = float(location[CONF_LONGITUDE])
-            return self.async_create_entry(data=data)
+            merged = {**conf, **data}
+            if merged[CONF_MODE] == MODE_TRACKED:
+                unique_id = f"tracked_{merged[CONF_TRACKED_ENTITY]}"
+            else:
+                unique_id = (
+                    f"fixed_{merged[CONF_LATITUDE]:.3f}_{merged[CONF_LONGITUDE]:.3f}"
+                )
+            if any(
+                other.unique_id == unique_id
+                for other in self.hass.config_entries.async_entries(DOMAIN)
+                if other.entry_id != self.config_entry.entry_id
+            ):
+                errors["base"] = "already_configured"
+            else:
+                # Update both together so only one reload is triggered.
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, unique_id=unique_id, options=data
+                )
+                return self.async_create_entry(data=data)
 
         fields: dict[Any, Any] = {}
         if conf[CONF_MODE] == MODE_FIXED:
@@ -261,4 +280,6 @@ class LocationOptionsFlow(OptionsFlow):
                 )
             )
         )
-        return self.async_show_form(step_id="location", data_schema=vol.Schema(fields))
+        return self.async_show_form(
+            step_id="location", data_schema=vol.Schema(fields), errors=errors
+        )
