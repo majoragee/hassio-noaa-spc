@@ -33,16 +33,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub = await async_acquire_hub(hass)
-    if is_hub_entry(entry):
-        hub.apply_options(entry.options)
-        entry.runtime_data = hub
-        platforms = HUB_PLATFORMS
-    else:
-        coordinator = LocationCoordinator(hass, entry, hub)
-        await coordinator.async_start()
-        entry.runtime_data = coordinator
-        platforms = LOCATION_PLATFORMS
-    await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    try:
+        if is_hub_entry(entry):
+            hub.apply_options(entry.options)
+            entry.runtime_data = hub
+            platforms = HUB_PLATFORMS
+        else:
+            coordinator = LocationCoordinator(hass, entry, hub)
+            await coordinator.async_start()
+            entry.runtime_data = coordinator
+            platforms = LOCATION_PLATFORMS
+        await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    except BaseException:
+        # HA does not call async_unload_entry for a failed setup.
+        await async_release_hub(hass)
+        raise
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     return True
 

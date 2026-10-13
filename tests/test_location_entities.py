@@ -5,7 +5,10 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.noaa_spc.const import (
     CONF_GROUPS,
@@ -136,3 +139,27 @@ async def test_entities_belong_to_location_device(
     registry = er.async_get(hass)
     reg_entry = registry.async_get("sensor.spc_home_day_1_risk")
     assert reg_entry.unique_id == f"{entry.entry_id}_day1_risk"
+
+
+async def test_failed_setup_releases_hub_reference(
+    hass: HomeAssistant, mock_api
+) -> None:
+    good = fixed_entry()
+    await setup_entry(hass, good)
+    hub = get_hub(hass)
+    users_before = hub.users
+
+    bad = fixed_entry(lat=36.0, lon=-97.0, title="Broken")
+    bad = MockConfigEntry(
+        domain=DOMAIN,
+        title="Broken",
+        unique_id=bad.unique_id,
+        data={k: v for k, v in bad.data.items() if k != "latitude"},
+    )
+    bad.add_to_hass(hass)
+    assert not await hass.config_entries.async_setup(bad.entry_id)
+    await hass.async_block_till_done()
+
+    assert bad.state is ConfigEntryState.SETUP_ERROR
+    assert get_hub(hass) is hub
+    assert hub.users == users_before
