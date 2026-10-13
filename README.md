@@ -105,17 +105,3 @@ data:
 ## Disclaimer
 
 This project is not affiliated with or endorsed by NOAA or the National Weather Service. It is not for life-safety decisions. Always heed official watches, warnings and local authorities.
-
-## Releasing
-
-Day-to-day work is pushed to the Gitea `origin` only. GitHub (the `github`
-remote, which HACS installs from) is updated only when a release is cut:
-
-```bash
-scripts/release.sh 0.1.0
-```
-
-The script requires a clean `main`, bumps the version in `manifest.json`,
-`pyproject.toml` and the User-Agent, runs lint and tests, commits and tags
-`v0.1.0`, pushes `main` and the tag to both remotes, and publishes a GitHub
-release with generated notes.

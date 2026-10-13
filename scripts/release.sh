@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Cut a release: bump the version, tag it, push to Gitea (origin) and GitHub
-# (github), and publish a GitHub release for HACS.
+# Cut a release: bump the version, tag it, push to both remotes, and publish
+# a GitHub release for HACS.
 #
 # Usage: scripts/release.sh X.Y.Z
 set -euo pipefail
