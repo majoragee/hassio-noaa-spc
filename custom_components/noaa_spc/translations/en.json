@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add an SPC location",
+        "menu_options": {
+          "fixed": "Fixed location",
+          "tracked": "Follow a device tracker, person or zone"
+        }
+      },
+      "fixed": {
+        "title": "Fixed location",
+        "data": { "name": "Name", "location": "Location" }
+      },
+      "tracked": {
+        "title": "Tracked location",
+        "data": { "name": "Name", "tracked_entity": "Entity to follow" }
+      },
+      "outside": {
+        "title": "Outside SPC coverage",
+        "description": "This location is outside the contiguous United States. SPC convective outlooks only cover the CONUS, so its risk will always be \"none\". Submit to add it anyway."
+      }
+    },
+    "abort": {
+      "already_configured": "This location is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "hub": {
+        "title": "SPC polling",
+        "data": {
+          "outlook_interval_min": "Outlook poll interval (minutes)",
+          "alert_interval_min": "Mesoscale discussion and watch feed poll interval (minutes)"
+        }
+      },
+      "location": {
+        "title": "Location options",
+        "data": {
+          "location": "Location",
+          "tracked_entity": "Entity to follow",
+          "move_threshold_km": "Minimum movement before re-evaluating (km)",
+          "groups": "Entity groups"
+        }
+      }
+    }
+  },
+  "selector": {
+    "groups": {
+      "options": {
+        "categorical": "Categorical risk (Days 1–3)",
+        "probabilistic": "Tornado / wind / hail probabilities (Days 1–3)",
+        "extended": "Days 4–8",
+        "alerts": "Mesoscale discussions"
+      }
+    }
+  },
+  "issues": {
+    "missing_tracker": {
+      "title": "SPC location \"{location}\" lost its tracker",
+      "description": "The entity {entity_id} that the SPC location \"{location}\" follows no longer exists. Open the NOAA Storm Prediction Center integration, choose Configure on this location and pick a new entity, or delete the location."
+    }
+  }
+}
